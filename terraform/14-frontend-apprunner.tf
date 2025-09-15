@@ -243,10 +243,8 @@ resource "aws_apprunner_service" "frontend_service" {
 
         # ENVIRONMENT VARIABLES: Configure the app for production
         runtime_environment_variables = {
-          # Backend API URLs (internal ALB addresses)
-          NEXT_PUBLIC_AUTH_SERVICE_URL         = "http://${aws_lb.main_alb.dns_name}"
-          NEXT_PUBLIC_EXTRACTION_SERVICE_URL   = "http://${aws_lb.main_alb.dns_name}"
-          NEXT_PUBLIC_SUMMARIZATION_SERVICE_URL = "http://${aws_lb.main_alb.dns_name}"
+          # Backend API URLs will be set by GitHub Actions during deployment
+          # The ALB DNS name is determined after Kubernetes ingress is created
           
           # App Configuration
           NODE_ENV                    = "production"
