@@ -54,17 +54,25 @@ jobs:
         cd terraform
         terraform init
 
+    - name: Terraform Validate
+      run: |
+        cd terraform
+        echo "🔍 Validating Terraform configuration..."
+        terraform validate
+        echo "✅ Terraform configuration is valid"
+
     - name: Terraform Plan
       run: |
         cd terraform
         
         # Run terraform plan and capture exit code
         set +e  # Don't exit on error immediately
+        echo "🚀 Running Terraform plan..."
         terraform plan -var="aws_region=${{ env.AWS_REGION }}" \
                       -var="environment=${{ github.event.inputs.environment || 'production' }}" \
                       -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
                       -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" \
-                      -out=tfplan
+                      -out=tfplan 2>&1 | tee plan_output.log
         PLAN_EXIT_CODE=$?
         set -e  # Re-enable exit on error
         
@@ -76,6 +84,21 @@ jobs:
           echo "✅ Terraform plan completed - Changes detected (this is expected)"
         else
           echo "❌ Terraform plan failed with exit code $PLAN_EXIT_CODE"
+          echo "📋 Plan output:"
+          cat plan_output.log
+          echo "🔍 Checking for common issues..."
+          
+          # Check for specific error patterns
+          if grep -q "Error:" plan_output.log; then
+            echo "⚠️  Configuration errors found in plan output"
+            grep "Error:" plan_output.log
+          fi
+          
+          if grep -q "Warning:" plan_output.log; then
+            echo "⚠️  Warnings found in plan output"
+            grep "Warning:" plan_output.log
+          fi
+          
           exit 1
         fi
         
