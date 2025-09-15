@@ -273,3 +273,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Built with ❤️ for production-scale document intelligence**
+
+## 📄 Latest Features
+- PDF Processing: Upload and extract text from PDF files (up to 10MB, 20 pages)
+- Enhanced document management with file type detection
+- Optimized for cost-effective deployment on t3.medium instances
+
