@@ -1,16 +1,16 @@
 # text_summarisation_service/main.py
 
 import asyncio
-import boto3
 import json
 import os
 from contextlib import asynccontextmanager
 
+import boto3
+import openai
+from bson import ObjectId
 from fastapi import FastAPI, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
-import openai
 from pydantic import BaseModel
-from bson import ObjectId
 
 # --- Configuration ---
 MONGO_CONN_STR = os.getenv("MONGO_CONNECTION_STRING")
@@ -26,12 +26,13 @@ db_collection = None
 openai_client: openai.AsyncOpenAI = None
 sqs_client = None
 
+
 # --- Lifespan Manager for Connections ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global mongo_client, db_collection, openai_client, sqs_client
     print("Starting up summarization service...")
-    
+
     print(f"Connecting to MongoDB...")
     mongo_client = AsyncIOMotorClient(MONGO_CONN_STR)
     db_collection = mongo_client[MONGO_DB_NAME][MONGO_COLLECTION_NAME]
@@ -49,23 +50,22 @@ async def lifespan(app: FastAPI):
 
     print("Starting SQS polling loop...")
     asyncio.create_task(poll_sqs_queue())
-    
+
     yield
-    
+
     print("Shutting down...")
     if mongo_client:
         mongo_client.close()
 
+
 # --- FastAPI App ---
-app = FastAPI(
-    title="Text Summarization Service",
-    version="1.0.0",
-    lifespan=lifespan
-)
+app = FastAPI(title="Text Summarization Service", version="1.0.0", lifespan=lifespan)
+
 
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "Summarization Service is healthy"}
+
 
 # --- SQS Worker Logic ---
 class SQSMessageBody(BaseModel):
@@ -73,11 +73,12 @@ class SQSMessageBody(BaseModel):
     user_id: int
     text_to_summarize: str
 
+
 async def process_message(message: dict):
     try:
-        receipt_handle = message['ReceiptHandle']
-        body_data = json.loads(message['Body'])
-        
+        receipt_handle = message["ReceiptHandle"]
+        body_data = json.loads(message["Body"])
+
         validated_body = SQSMessageBody(**body_data)
         doc_id = validated_body.document_id
         text = validated_body.text_to_summarize
@@ -94,18 +95,16 @@ async def process_message(message: dict):
 
         await db_collection.update_one(
             {"_id": ObjectId(doc_id)},
-            {"$set": {"summary": summary, "status": "complete"}}
+            {"$set": {"summary": summary, "status": "complete"}},
         )
         print(f"Successfully summarized and updated document ID: {doc_id}")
 
-        sqs_client.delete_message(
-            QueueUrl=SQS_QUEUE_URL,
-            ReceiptHandle=receipt_handle
-        )
+        sqs_client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
         print(f"Deleted message for document ID: {doc_id} from SQS.")
 
     except Exception as e:
         print(f"Error processing message: {e}. Message will be retried or sent to DLQ.")
+
 
 async def poll_sqs_queue():
     while True:
@@ -115,10 +114,10 @@ async def poll_sqs_queue():
                 QueueUrl=SQS_QUEUE_URL,
                 MaxNumberOfMessages=5,
                 WaitTimeSeconds=20,
-                MessageAttributeNames=['All']
+                MessageAttributeNames=["All"],
             )
-            
-            messages = response.get('Messages', [])
+
+            messages = response.get("Messages", [])
             if messages:
                 print(f"Received {len(messages)} messages.")
                 await asyncio.gather(*(process_message(msg) for msg in messages))
@@ -129,6 +128,8 @@ async def poll_sqs_queue():
             print(f"An error occurred in the polling loop: {e}")
             await asyncio.sleep(10)
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8002)

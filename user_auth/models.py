@@ -1,20 +1,22 @@
 # auth_service/models.py
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.exc import OperationalError
-from datetime import datetime, timezone
 import time
+from datetime import datetime, timezone
+
+from sqlalchemy import (Boolean, Column, DateTime, Integer, String,
+                        create_engine)
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 # Import get_env_vars here
-from shared.config import get_config, get_env_vars # ADDED get_env_vars
+from shared.config import get_config, get_env_vars  # ADDED get_env_vars
 
 # Load config (from config.yml)
 config = get_config()
 
 # Load environment variables (from .env file)
-env = get_env_vars() # NEW LINE: Get the env vars into a separate 'env' variable
+env = get_env_vars()  # NEW LINE: Get the env vars into a separate 'env' variable
 
 # Database setup
 DATABASE_URL = (
@@ -31,6 +33,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Base class for declarative models
 Base = declarative_base()
 
+
 # User Model Definition
 class User(Base):
     __tablename__ = "users"
@@ -41,10 +44,15 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_updated = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}', is_active={self.is_active})>"
+
 
 # Function to create tables
 def create_db_tables():
@@ -62,13 +70,16 @@ def create_db_tables():
             return  # Exit the function on success
         # --- CATCH A MORE GENERAL EXCEPTION ---
         except Exception as e:
-            print(f"Database connection failed (Attempt {attempt + 1}/{max_retries}): {e}")
+            print(
+                f"Database connection failed (Attempt {attempt + 1}/{max_retries}): {e}"
+            )
             if attempt < max_retries - 1:
                 print(f"Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
             else:
                 print("Max retries reached. Could not connect to the database.")
                 raise  # Re-raise the last exception if all retries fail
+
 
 # Example usage (for testing models)
 if __name__ == "__main__":

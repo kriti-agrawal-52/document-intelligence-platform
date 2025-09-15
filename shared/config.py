@@ -1,11 +1,13 @@
 # shared/config.py
 
 import os
-import yaml
 from types import SimpleNamespace
+
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
+
 
 class AppConfig:
     _instance = None
@@ -17,13 +19,17 @@ class AppConfig:
         return cls._instance
 
     def _load_config(self):
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yml')
-        with open(config_path, 'r') as f:
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "config.yml"
+        )
+        with open(config_path, "r") as f:
             config_data = yaml.safe_load(f)
 
         def dict_to_simplenamespace(d):
             if isinstance(d, dict):
-                return SimpleNamespace(**{k: dict_to_simplenamespace(v) for k, v in d.items()})
+                return SimpleNamespace(
+                    **{k: dict_to_simplenamespace(v) for k, v in d.items()}
+                )
             return d
 
         self.config = dict_to_simplenamespace(config_data)
@@ -36,7 +42,9 @@ class AppConfig:
             MYSQL_HOST=os.getenv("MYSQL_HOST", self.config.databases.mysql.host),
             MYSQL_PORT=os.getenv("MYSQL_PORT", str(self.config.databases.mysql.port)),
             MONGODB_HOST=os.getenv("MONGODB_HOST", self.config.databases.mongodb.host),
-            MONGODB_PORT=os.getenv("MONGODB_PORT", str(self.config.databases.mongodb.port)),
+            MONGODB_PORT=os.getenv(
+                "MONGODB_PORT", str(self.config.databases.mongodb.port)
+            ),
             # --- MongoDB credentials ---
             mongodb_user=os.getenv("MONGODB_USER", None),
             mongodb_password=os.getenv("MONGODB_PASSWORD", None),
@@ -46,7 +54,9 @@ class AppConfig:
             REDIS_DB=os.getenv("REDIS_DB", str(self.config.databases.redis.db)),
             # --- AWS configuration ---
             AWS_REGION=os.getenv("AWS_REGION", self.config.aws.region),
-            S3_USER_IMAGES_BUCKET=os.getenv("S3_USER_IMAGES_BUCKET", self.config.aws.s3.user_images_bucket_name),
+            S3_USER_IMAGES_BUCKET=os.getenv(
+                "S3_USER_IMAGES_BUCKET", self.config.aws.s3.user_images_bucket_name
+            ),
             SQS_QUEUE_URL=os.getenv("SQS_QUEUE_URL", ""),
         )
 
@@ -62,12 +72,15 @@ class AppConfig:
         if not self.env.openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set.")
 
+
 # Instantiate the config globally or get it via a function
 def get_config():
     return AppConfig().config
 
+
 def get_env_vars():
     return AppConfig().env
+
 
 # Example usage (for testing purposes, not typically in production code directly)
 if __name__ == "__main__":
@@ -82,4 +95,4 @@ if __name__ == "__main__":
     print("\nLoaded Environment Variables (sensitive info omitted for display):")
     print(f"JWT Secret Key Loaded: {'Yes' if env.jwt_secret_key else 'No'}")
     print(f"OpenAI API Key Loaded: {'Yes' if env.openai_api_key else 'No'}")
-    print(f"MongoDB User Loaded: {env.mongodb_user}") # Check if it's None or a value
+    print(f"MongoDB User Loaded: {env.mongodb_user}")  # Check if it's None or a value
