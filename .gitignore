@@ -209,3 +209,6 @@ coverage.xml
 # Security scan reports
 bandit-report.json
 safety-report.json
+
+# AWS cleanup scripts (temporary utilities)
+cleanup-aws-resources.sh

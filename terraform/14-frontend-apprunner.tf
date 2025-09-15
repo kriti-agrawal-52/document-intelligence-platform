@@ -313,7 +313,7 @@ resource "aws_apprunner_service" "frontend_service" {
 # STEP 10: Auto Scaling Configuration
 # PURPOSE: Define how the frontend should scale based on traffic
 resource "aws_apprunner_auto_scaling_configuration_version" "frontend_scaling" {
-  auto_scaling_configuration_name = "${var.project_name}-frontend-scaling"
+  auto_scaling_configuration_name = "${var.project_name}-frontend"
 
   # SCALING LIMITS: Minimum and maximum number of instances
   min_size = 1  # Always keep at least 1 instance running
