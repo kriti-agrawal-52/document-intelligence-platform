@@ -34,7 +34,7 @@ module "iam_assumable_role_for_alb" {
 resource "aws_iam_policy" "aws_load_balancer_controller" {
   name        = "AWSLoadBalancerControllerIAMPolicy"
   description = "Policy for the AWS Load Balancer Controller"
-  
+
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [

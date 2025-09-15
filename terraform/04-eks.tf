@@ -14,13 +14,13 @@
 module "eks" {
   # `source` points to the EKS module in the Terraform Registry.
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.37"  # Update to a newer version that supports auth management
+  version = "~> 20.37" # Update to a newer version that supports auth management
 
   # --- Cluster Configuration ---
   # These arguments configure the EKS control plane itself.
 
   # `cluster_name` is the unique name for our EKS cluster.
-  cluster_name    = "document-intelligence"
+  cluster_name = "document-intelligence"
   # `cluster_version` specifies the version of Kubernetes to run. It's important to use
   # a supported version.
   cluster_version = "1.29"
@@ -36,7 +36,7 @@ module "eks" {
   # network might incorrectly resolve to the private IP.
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = false
-  
+
   # --- Node Group Configuration ---
   # This block defines the group of EC2 instances (worker nodes) that will join the cluster.
 
@@ -45,15 +45,15 @@ module "eks" {
   eks_managed_node_groups = {
     main = {
       # `name` for the node group.
-      name           = "main-node-group"
+      name = "main-node-group"
       # `instance_types` specifies the type of EC2 instances to use for the worker nodes.
       # "t3.medium" is a good general-purpose choice for this application.
       instance_types = ["t3.medium"]
       # `min_size`, `max_size`, and `desired_size` configure the autoscaling for the node group.
       # This allows the number of worker nodes to scale up or down based on the cluster's needs.
-      min_size       = 1
-      max_size       = 3
-      desired_size   = 2
+      min_size     = 1
+      max_size     = 3
+      desired_size = 2
     }
   }
 

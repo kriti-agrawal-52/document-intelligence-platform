@@ -10,11 +10,11 @@ resource "aws_sqs_queue" "summarization_dlq" {
 
 # Main SQS queue for summarization jobs
 resource "aws_sqs_queue" "summarization_queue" {
-  name                      = "summarization-jobs-queue"
-  delay_seconds             = 0
-  max_message_size          = 262144 # 256 KiB
-  message_retention_seconds = 345600 # 4 days
-  visibility_timeout_seconds = 300 # 5 minutes, long enough for summarization
+  name                       = "summarization-jobs-queue"
+  delay_seconds              = 0
+  max_message_size           = 262144 # 256 KiB
+  message_retention_seconds  = 345600 # 4 days
+  visibility_timeout_seconds = 300    # 5 minutes, long enough for summarization
 
   # Link to the DLQ
   redrive_policy = jsonencode({

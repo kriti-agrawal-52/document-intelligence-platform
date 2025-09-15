@@ -23,7 +23,7 @@ resource "aws_secretsmanager_secret_version" "rds_creds" {
   secret_id = aws_secretsmanager_secret.rds_secret.id
   # `secret_string` holds the actual sensitive value. We are storing it as a JSON
   # string because it contains multiple related values (username and password).
-  
+
   secret_string = jsonencode({
     username = "rdsdatabaseadmin"
     password = "PM1xlPCkRgZwploysH0i"
@@ -33,7 +33,7 @@ resource "aws_secretsmanager_secret_version" "rds_creds" {
 # --- DocumentDB Credentials Secret ---
 # We follow the same pattern to create a separate secret for our DocumentDB credentials.
 resource "aws_secretsmanager_secret" "docdb_secret" {
-  name = "doc-intel/docdb-credentials"
+  name                    = "doc-intel/docdb-credentials"
   recovery_window_in_days = 0
 }
 
@@ -48,7 +48,7 @@ resource "aws_secretsmanager_secret_version" "docdb_creds" {
 # --- JWT Secret Key ---
 # This secret stores the key used to sign the JSON Web Tokens for authentication.
 resource "aws_secretsmanager_secret" "jwt_key_secret" {
-  name = "doc-intel/jwt-key"
+  name                    = "doc-intel/jwt-key"
   recovery_window_in_days = 0
 }
 
@@ -60,7 +60,7 @@ resource "aws_secretsmanager_secret_version" "jwt_key" {
 # --- OpenAI API Key ---
 # This secret stores the API key for the external OpenAI service.
 resource "aws_secretsmanager_secret" "openai_key_secret" {
-  name = "doc-intel/openai-key"
+  name                    = "doc-intel/openai-key"
   recovery_window_in_days = 0
 }
 

@@ -22,7 +22,7 @@ resource "random_string" "user_images_bucket_suffix" {
 # STEP 2: Create S3 bucket for user-uploaded images
 resource "aws_s3_bucket" "user_images_bucket" {
   bucket = "${var.project_name}-user-images-${random_string.user_images_bucket_suffix.result}"
-  
+
   provider = aws
 
   tags = {
@@ -38,7 +38,7 @@ resource "aws_s3_bucket" "user_images_bucket" {
 # STEP 3: Enable versioning for image backup and rollback
 resource "aws_s3_bucket_versioning" "user_images_versioning" {
   bucket = aws_s3_bucket.user_images_bucket.id
-  
+
   versioning_configuration {
     status = "Enabled"
   }
@@ -46,7 +46,7 @@ resource "aws_s3_bucket_versioning" "user_images_versioning" {
 
 # STEP 4: Configure lifecycle rules for cost management
 resource "aws_s3_bucket_lifecycle_configuration" "user_images_lifecycle" {
-  bucket = aws_s3_bucket.user_images_bucket.id
+  bucket     = aws_s3_bucket.user_images_bucket.id
   depends_on = [aws_s3_bucket_versioning.user_images_versioning]
 
   rule {
@@ -96,36 +96,36 @@ resource "aws_s3_bucket_public_access_block" "user_images_pab" {
 # STEP 7: Configure bucket policy for secure access
 resource "aws_s3_bucket_policy" "user_images_policy" {
   bucket = aws_s3_bucket.user_images_bucket.id
-  
+
   depends_on = [
     aws_s3_bucket_public_access_block.user_images_pab
   ]
 
   policy = jsonencode({
     Version = "2012-10-17"
-    
+
     Statement = [
       # Allow CloudFront to read images for thumbnails
       {
-        Sid       = "AllowCloudFrontServicePrincipalReadOnly"
-        Effect    = "Allow"
+        Sid    = "AllowCloudFrontServicePrincipalReadOnly"
+        Effect = "Allow"
         Principal = {
           Service = "cloudfront.amazonaws.com"
         }
         Action   = "s3:GetObject"
         Resource = "${aws_s3_bucket.user_images_bucket.arn}/*"
-        
+
         Condition = {
           StringEquals = {
             "AWS:SourceArn" = aws_cloudfront_distribution.frontend_distribution.arn
           }
         }
       },
-      
+
       # Allow admin users full access for management
       {
-        Sid       = "AllowAdminUserFullAccess"
-        Effect    = "Allow"
+        Sid    = "AllowAdminUserFullAccess"
+        Effect = "Allow"
         Principal = {
           AWS = data.aws_caller_identity.current.arn
         }
@@ -154,9 +154,9 @@ resource "aws_s3_bucket_cors_configuration" "user_images_cors" {
     allowed_headers = ["*"]
     allowed_methods = ["GET", "HEAD"]
     allowed_origins = [
-      "https://dw9izoh5i5hj1.cloudfront.net",  # CloudFront domain
-      "http://localhost:3000",                 # Local development
-      "http://localhost:3001"                  # Alternative local port
+      "https://dw9izoh5i5hj1.cloudfront.net", # CloudFront domain
+      "http://localhost:3000",                # Local development
+      "http://localhost:3001"                 # Alternative local port
     ]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000

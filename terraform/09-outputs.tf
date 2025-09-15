@@ -13,7 +13,7 @@
 output "vpc_id" {
   description = "The ID of the created VPC."
   # The `value` is retrieved from the `vpc` module's outputs.
-  value       = module.vpc.vpc_id
+  value = module.vpc.vpc_id
 }
 
 # --- EKS Cluster Outputs ---
@@ -49,7 +49,7 @@ output "docdb_endpoint" {
 output "redis_endpoint" {
   description = "The primary endpoint of the ElastiCache for Redis cluster."
   # We get the address of the first (and only) node in the cluster.
-  value       = aws_elasticache_cluster.redis.cache_nodes[0].address
+  value = aws_elasticache_cluster.redis.cache_nodes[0].address
 }
 
 # --- ECR Repository Outputs ---
@@ -70,7 +70,7 @@ output "text_extraction_service_ecr_url" {
 output "text_summarization_service_ecr_url" {
   description = "The URL of the ECR repository for the text summarization service."
   # The value correctly references the resource defined in 06-ecr.tf
-  value       = aws_ecr_repository.text_summarization_service_ecr.repository_url
+  value = aws_ecr_repository.text_summarization_service_ecr.repository_url
 }
 
 # --- SQS Queue Output ---
