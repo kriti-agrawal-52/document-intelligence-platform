@@ -77,9 +77,15 @@ jobs:
         echo "REDIS_PORT=6379" >> $GITHUB_ENV
         echo "REDIS_DB=0" >> $GITHUB_ENV
 
+    - name: Install database clients
+      run: |
+        # Install Redis CLI
+        sudo apt-get update
+        sudo apt-get install -y redis-tools mysql-client
+        
     - name: Wait for services to be ready
       run: |
-        sleep 10
+        sleep 15
         # Test Redis connection
         redis-cli -h localhost -p 6379 ping
         # Test MySQL connection
@@ -203,7 +209,7 @@ jobs:
     - name: Terraform Format Check
       run: |
         cd terraform
-        terraform fmt -check -recursive
+        terraform fmt -check -diff
 
     - name: Terraform Init
       run: |
