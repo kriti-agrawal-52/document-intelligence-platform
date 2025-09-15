@@ -163,7 +163,7 @@ resource "aws_iam_role_policy" "apprunner_backend_access" {
 # PURPOSE: Allow App Runner to securely connect to backend services in private VPC
 # BENEFIT: Frontend can make direct calls to backend without going through internet
 resource "aws_apprunner_vpc_connector" "frontend_vpc_connector" {
-  vpc_connector_name = "${var.project_name}-frontend-vpc-connector"
+  vpc_connector_name = "${var.project_name}-frontend-vpc"
   subnets            = module.vpc.private_subnets
   security_groups    = [aws_security_group.frontend_sg.id]
 
