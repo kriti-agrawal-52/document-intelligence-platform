@@ -232,6 +232,11 @@ resource "aws_apprunner_service" "frontend_service" {
     # AUTO DEPLOYMENTS: Automatically deploy when new images are pushed
     auto_deployments_enabled = true
 
+    # AUTHENTICATION: IAM role for pulling images from ECR
+    authentication_configuration {
+      access_role_arn = aws_iam_role.apprunner_access_role.arn
+    }
+
     image_repository {
       # CONTAINER IMAGE: Point to our ECR repository
       image_identifier      = "${aws_ecr_repository.frontend_repo.repository_url}:latest"
@@ -260,9 +265,6 @@ resource "aws_apprunner_service" "frontend_service" {
       }
     }
   }
-
-  # ACCESS ROLE: IAM role for pulling images from ECR
-  access_role_arn = aws_iam_role.apprunner_access_role.arn
 
   # INSTANCE CONFIGURATION: Resource allocation and scaling
   instance_configuration {
