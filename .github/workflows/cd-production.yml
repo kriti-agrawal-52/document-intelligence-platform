@@ -57,19 +57,35 @@ jobs:
     - name: Terraform Plan
       run: |
         cd terraform
+        
+        # Run terraform plan and capture exit code
+        set +e  # Don't exit on error immediately
         terraform plan -var="aws_region=${{ env.AWS_REGION }}" \
                       -var="environment=${{ github.event.inputs.environment || 'production' }}" \
                       -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
                       -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" \
                       -out=tfplan
+        PLAN_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
         
-        # Verify plan was created successfully
+        # Check terraform plan exit codes
+        # 0 = No changes, 2 = Changes present, 1 = Error
+        if [ $PLAN_EXIT_CODE -eq 0 ]; then
+          echo "✅ Terraform plan completed - No changes needed"
+        elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+          echo "✅ Terraform plan completed - Changes detected (this is expected)"
+        else
+          echo "❌ Terraform plan failed with exit code $PLAN_EXIT_CODE"
+          exit 1
+        fi
+        
+        # Verify plan file was created
         if [ ! -f tfplan ]; then
           echo "❌ Terraform plan file was not created"
           exit 1
         fi
         
-        echo "✅ Terraform plan completed successfully"
+        echo "✅ Terraform plan file created successfully"
 
     - name: Terraform Apply
       id: terraform
