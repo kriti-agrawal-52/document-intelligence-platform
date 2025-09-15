@@ -9,10 +9,10 @@
 # -- Terraform configuration block -- 
 # This block is used to configure Terraform's own behavior.
 terraform {
-  # `required_version` specifies the minimum version of the Terraform CLI that can be
-  # used with this code. This prevents accidental use of an older, incompatible version
-  # that might not support the features or syntax used in these files.
-  required_version = ">= 1.0"
+    # `required_version` specifies the minimum version of the Terraform CLI that can be
+    # used with this code. This prevents accidental use of an older, incompatible version
+    # that might not support the features or syntax used in these files.
+    required_version = ">= 1.3.2"
 
   # `required_providers` is a nested block that declares all the cloud providers
   # this project depends on. For each provider, we specify its source and version.
