@@ -17,7 +17,7 @@ module "iam_assumable_role_for_alb" {
   version = "5.39.0"
 
   create_role = true
-  role_name   = "aws-load-balancer-controller-role"
+  role_name   = "aws-load-balancer-controller-role-v2"
   # `provider_url` is the OIDC provider URL of our EKS cluster. This is how the role
   # establishes a trust relationship with the cluster. We get this URL from our EKS module output.
   provider_url = replace(module.eks.cluster_oidc_issuer_url, "https://", "")

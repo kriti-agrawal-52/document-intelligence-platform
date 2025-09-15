@@ -234,7 +234,7 @@ resource "aws_s3_bucket_policy" "frontend_policy" {
 # HOW IT WORKS: CloudFront signs requests to S3 using AWS credentials
 # LEGACY NOTE: Replaces old "Origin Access Identity" (OAI) with better security
 resource "aws_cloudfront_origin_access_control" "frontend_oac" {
-  name                              = "${var.project_name}-frontend-oac" # Human-readable name
+  name                              = "${var.project_name}-frontend-oac-v2" # Human-readable name
   description                       = "OAC for frontend S3 bucket"       # What this does
   origin_access_control_origin_type = "s3"                               # We're accessing S3
   signing_behavior                  = "always"                           # Sign all requests
