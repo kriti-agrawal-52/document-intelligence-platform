@@ -52,7 +52,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "user_images_lifecycle" {
   rule {
     id     = "user_images_lifecycle"
     status = "Enabled"
-    
+
     # Filter to apply rule to all objects
     filter {
       prefix = ""

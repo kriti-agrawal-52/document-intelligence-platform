@@ -164,8 +164,8 @@ resource "aws_iam_role_policy" "apprunner_backend_access" {
 # BENEFIT: Frontend can make direct calls to backend without going through internet
 resource "aws_apprunner_vpc_connector" "frontend_vpc_connector" {
   vpc_connector_name = "${var.project_name}-frontend-vpc-connector"
-  subnets           = module.vpc.private_subnets
-  security_groups   = [aws_security_group.frontend_sg.id]
+  subnets            = module.vpc.private_subnets
+  security_groups    = [aws_security_group.frontend_sg.id]
 
   tags = {
     Name        = "${var.project_name}-frontend-vpc-connector"
@@ -250,14 +250,14 @@ resource "aws_apprunner_service" "frontend_service" {
         runtime_environment_variables = {
           # Backend API URLs will be set by GitHub Actions during deployment
           # The ALB DNS name is determined after Kubernetes ingress is created
-          
+
           # App Configuration
-          NODE_ENV                    = "production"
-          NEXT_PUBLIC_APP_NAME        = "Document Intelligence Platform"
-          NEXT_PUBLIC_APP_VERSION     = "1.0.0"
-          
+          NODE_ENV                = "production"
+          NEXT_PUBLIC_APP_NAME    = "Document Intelligence Platform"
+          NEXT_PUBLIC_APP_VERSION = "1.0.0"
+
           # Performance Optimizations
-          NEXT_TELEMETRY_DISABLED     = "1"
+          NEXT_TELEMETRY_DISABLED = "1"
         }
 
         # STARTUP COMMAND: How to start the Next.js application
@@ -269,8 +269,8 @@ resource "aws_apprunner_service" "frontend_service" {
   # INSTANCE CONFIGURATION: Resource allocation and scaling
   instance_configuration {
     # INSTANCE SIZE: CPU and memory allocation
-    cpu    = "1 vCPU"  # 1 virtual CPU core
-    memory = "2 GB"    # 2 GB RAM
+    cpu    = "1 vCPU" # 1 virtual CPU core
+    memory = "2 GB"   # 2 GB RAM
 
     # IAM ROLE: Permissions for the running container
     instance_role_arn = aws_iam_role.apprunner_instance_role.arn
@@ -281,12 +281,12 @@ resource "aws_apprunner_service" "frontend_service" {
 
   # HEALTH CHECK: Configure health monitoring
   health_check_configuration {
-    healthy_threshold   = 1    # Consider healthy after 1 successful check
-    interval            = 10   # Check every 10 seconds
+    healthy_threshold   = 1             # Consider healthy after 1 successful check
+    interval            = 10            # Check every 10 seconds
     path                = "/api/health" # Our custom health endpoint
     protocol            = "HTTP"
-    timeout             = 5    # 5 second timeout per check
-    unhealthy_threshold = 5    # Consider unhealthy after 5 failed checks
+    timeout             = 5 # 5 second timeout per check
+    unhealthy_threshold = 5 # Consider unhealthy after 5 failed checks
   }
 
   # VPC CONNECTIVITY: Connect to backend services in private VPC
@@ -316,8 +316,8 @@ resource "aws_apprunner_auto_scaling_configuration_version" "frontend_scaling" {
   auto_scaling_configuration_name = "${var.project_name}-frontend-scaling"
 
   # SCALING LIMITS: Minimum and maximum number of instances
-  min_size = 1   # Always keep at least 1 instance running
-  max_size = 10  # Scale up to 10 instances under high load
+  min_size = 1  # Always keep at least 1 instance running
+  max_size = 10 # Scale up to 10 instances under high load
 
   # CONCURRENCY: How many requests each instance can handle
   max_concurrency = 100 # Each instance can handle 100 concurrent requests
@@ -385,12 +385,12 @@ output "frontend_app_runner_arn" {
 output "frontend_deployment_info" {
   description = "Frontend deployment information"
   value = {
-    service_name    = aws_apprunner_service.frontend_service.service_name
-    service_url     = aws_apprunner_service.frontend_service.service_url
-    ecr_repository  = aws_ecr_repository.frontend_repo.repository_url
-    auto_scaling    = "1-10 instances, 100 concurrent requests per instance"
-    health_check    = "/api/health"
-    vpc_connected   = true
+    service_name   = aws_apprunner_service.frontend_service.service_name
+    service_url    = aws_apprunner_service.frontend_service.service_url
+    ecr_repository = aws_ecr_repository.frontend_repo.repository_url
+    auto_scaling   = "1-10 instances, 100 concurrent requests per instance"
+    health_check   = "/api/health"
+    vpc_connected  = true
   }
 }
 
@@ -398,11 +398,11 @@ output "frontend_deployment_info" {
 output "frontend_cost_estimation" {
   description = "Estimated monthly cost breakdown"
   value = {
-    base_cost       = "$25-50/month (1-2 instances running)"
-    scaling_cost    = "$25/instance/month under load"
-    data_transfer   = "$0.09/GB outbound"
+    base_cost          = "$25-50/month (1-2 instances running)"
+    scaling_cost       = "$25/instance/month under load"
+    data_transfer      = "$0.09/GB outbound"
     container_registry = "$0.10/GB/month for image storage"
-    note           = "Costs scale with actual usage - pay only for what you use"
+    note               = "Costs scale with actual usage - pay only for what you use"
   }
 }
 
@@ -410,8 +410,8 @@ output "frontend_cost_estimation" {
 output "frontend_monitoring_info" {
   description = "Monitoring and logging information"
   value = {
-    cloudwatch_logs    = aws_cloudwatch_log_group.frontend_logs.name
-    health_check_url   = "https://${aws_apprunner_service.frontend_service.service_url}/api/health"
+    cloudwatch_logs     = aws_cloudwatch_log_group.frontend_logs.name
+    health_check_url    = "https://${aws_apprunner_service.frontend_service.service_url}/api/health"
     auto_scaling_config = aws_apprunner_auto_scaling_configuration_version.frontend_scaling.arn
   }
 }

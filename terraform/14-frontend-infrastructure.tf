@@ -78,7 +78,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "frontend_lifecycle" {
   rule {
     id     = "frontend_lifecycle" # Name for this rule
     status = "Enabled"            # Activate the rule
-    
+
     # Filter to apply rule to all objects
     filter {
       prefix = "" # Apply to all objects in the bucket
@@ -235,10 +235,10 @@ resource "aws_s3_bucket_policy" "frontend_policy" {
 # LEGACY NOTE: Replaces old "Origin Access Identity" (OAI) with better security
 resource "aws_cloudfront_origin_access_control" "frontend_oac" {
   name                              = "${var.project_name}-frontend-oac-v2" # Human-readable name
-  description                       = "OAC for frontend S3 bucket"       # What this does
-  origin_access_control_origin_type = "s3"                               # We're accessing S3
-  signing_behavior                  = "always"                           # Sign all requests
-  signing_protocol                  = "sigv4"                            # AWS Signature V4 protocol
+  description                       = "OAC for frontend S3 bucket"          # What this does
+  origin_access_control_origin_type = "s3"                                  # We're accessing S3
+  signing_behavior                  = "always"                              # Sign all requests
+  signing_protocol                  = "sigv4"                               # AWS Signature V4 protocol
 
   # SECURITY BENEFIT: All requests from CloudFront to S3 are cryptographically signed
   # RESULT: S3 can verify requests came from our specific CloudFront distribution
