@@ -110,23 +110,6 @@ resource "aws_s3_bucket_policy" "user_images_policy" {
     Version = "2012-10-17"
 
     Statement = [
-      # Allow CloudFront to read images for thumbnails
-      {
-        Sid    = "AllowCloudFrontServicePrincipalReadOnly"
-        Effect = "Allow"
-        Principal = {
-          Service = "cloudfront.amazonaws.com"
-        }
-        Action   = "s3:GetObject"
-        Resource = "${aws_s3_bucket.user_images_bucket.arn}/*"
-
-        Condition = {
-          StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.frontend_distribution.arn
-          }
-        }
-      },
-
       # Allow admin users full access for management
       {
         Sid    = "AllowAdminUserFullAccess"
@@ -146,6 +129,21 @@ resource "aws_s3_bucket_policy" "user_images_policy" {
           aws_s3_bucket.user_images_bucket.arn,
           "${aws_s3_bucket.user_images_bucket.arn}/*"
         ]
+      },
+
+      # Allow backend services to access images
+      {
+        Sid    = "AllowBackendServicesAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.user_images_bucket.arn}/*"
       }
     ]
   })
@@ -157,11 +155,11 @@ resource "aws_s3_bucket_cors_configuration" "user_images_cors" {
 
   cors_rule {
     allowed_headers = ["*"]
-    allowed_methods = ["GET", "HEAD"]
+    allowed_methods = ["GET", "HEAD", "PUT", "POST"]
     allowed_origins = [
-      "https://dw9izoh5i5hj1.cloudfront.net", # CloudFront domain
-      "http://localhost:3000",                # Local development
-      "http://localhost:3001"                 # Alternative local port
+      "https://*.awsapprunner.com",  # App Runner domains
+      "http://localhost:3000",       # Local development
+      "http://localhost:3001"        # Alternative local port
     ]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000
