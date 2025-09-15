@@ -78,6 +78,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "frontend_lifecycle" {
   rule {
     id     = "frontend_lifecycle" # Name for this rule
     status = "Enabled"            # Activate the rule
+    
+    # Filter to apply rule to all objects
+    filter {
+      prefix = "" # Apply to all objects in the bucket
+    }
 
     # CURRENT VERSION MANAGEMENT: Files users are currently accessing
     expiration {
