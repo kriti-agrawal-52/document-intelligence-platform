@@ -62,12 +62,30 @@ jobs:
                       -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
                       -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" \
                       -out=tfplan
+        
+        # Verify plan was created successfully
+        if [ ! -f tfplan ]; then
+          echo "❌ Terraform plan file was not created"
+          exit 1
+        fi
+        
+        echo "✅ Terraform plan completed successfully"
 
     - name: Terraform Apply
       id: terraform
       run: |
         cd terraform
-        terraform apply -auto-approve tfplan
+        echo "🚀 Starting Terraform Apply..."
+        
+        # Apply the plan
+        if terraform apply -auto-approve tfplan; then
+          echo "✅ Terraform apply completed successfully"
+        else
+          echo "❌ Terraform apply failed"
+          exit 1
+        fi
+        
+        echo "📊 Exporting Terraform outputs..."
         
         # Export outputs for next jobs (with error handling)
         echo "auth_service_ecr_url=$(terraform output -raw auth_service_ecr_url)" >> $GITHUB_OUTPUT
@@ -83,15 +101,21 @@ jobs:
         # Frontend outputs (may not exist if frontend resources fail to create)
         if terraform output -raw frontend_ecr_repository_url >/dev/null 2>&1; then
           echo "frontend_ecr_repository_url=$(terraform output -raw frontend_ecr_repository_url)" >> $GITHUB_OUTPUT
+          echo "✅ Frontend ECR repository URL exported"
         else
           echo "frontend_ecr_repository_url=" >> $GITHUB_OUTPUT
+          echo "⚠️  Frontend ECR repository URL not available"
         fi
         
         if terraform output -raw frontend_app_runner_arn >/dev/null 2>&1; then
           echo "frontend_app_runner_arn=$(terraform output -raw frontend_app_runner_arn)" >> $GITHUB_OUTPUT
+          echo "✅ Frontend App Runner ARN exported"
         else
           echo "frontend_app_runner_arn=" >> $GITHUB_OUTPUT
+          echo "⚠️  Frontend App Runner ARN not available"
         fi
+        
+        echo "✅ All outputs exported successfully"
 
   build-and-push-images:
     runs-on: ubuntu-latest
