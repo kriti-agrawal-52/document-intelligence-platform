@@ -259,10 +259,10 @@ resource "aws_apprunner_service" "frontend_service" {
         start_command = "pnpm start"
       }
     }
-
-    # ACCESS ROLE: IAM role for pulling images from ECR
-    access_role_arn = aws_iam_role.apprunner_access_role.arn
   }
+
+  # ACCESS ROLE: IAM role for pulling images from ECR
+  access_role_arn = aws_iam_role.apprunner_access_role.arn
 
   # INSTANCE CONFIGURATION: Resource allocation and scaling
   instance_configuration {
