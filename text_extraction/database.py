@@ -5,8 +5,8 @@ import os
 from motor.motor_asyncio import (AsyncIOMotorClient, AsyncIOMotorCollection,
                                  AsyncIOMotorDatabase)
 
-from shared.config import (get_config,  # To get database name and credentials
-                           get_env_vars)
+from shared.config import get_config  # To get database name and credentials
+from shared.config import get_env_vars
 
 # Global MongoDB client and database/collection references
 # Global MongoDB client and database/collection references
