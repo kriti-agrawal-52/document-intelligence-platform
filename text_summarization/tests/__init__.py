@@ -1,0 +1,1 @@
+# Text summarization service tests

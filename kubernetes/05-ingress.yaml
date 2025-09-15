@@ -1,0 +1,28 @@
+# /kubernetes/05-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: doc-intel-ingress
+  namespace: doc-intel-app
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /auth/
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8000
+      - path: /extract/
+        pathType: Prefix
+        backend:
+          service:
+            name: text-extraction-service
+            port:
+              number: 8001

@@ -1,0 +1,229 @@
+name: CI - Development Branch
+
+on:
+  push:
+    branches: [ development ]
+  pull_request:
+    branches: [ development ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  AWS_REGION: ap-south-1
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_auth_db
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio pytest-cov httpx
+        pip install -r user_auth/requirements.txt
+        pip install -r text_extraction/requirements.txt
+        pip install -r text_summarization/requirements.txt
+
+    - name: Set up test environment variables
+      run: |
+        echo "JWT_SECRET_KEY=test-secret-key-for-ci-testing" >> $GITHUB_ENV
+        echo "OPENAI_API_KEY=test-openai-key" >> $GITHUB_ENV
+        echo "MYSQL_HOST=localhost" >> $GITHUB_ENV
+        echo "MYSQL_PORT=3306" >> $GITHUB_ENV
+        echo "MYSQL_USER=test_user" >> $GITHUB_ENV
+        echo "MYSQL_PASSWORD=test_password" >> $GITHUB_ENV
+        echo "REDIS_HOST=localhost" >> $GITHUB_ENV
+        echo "REDIS_PORT=6379" >> $GITHUB_ENV
+        echo "REDIS_DB=0" >> $GITHUB_ENV
+
+    - name: Wait for services to be ready
+      run: |
+        sleep 10
+        # Test Redis connection
+        redis-cli -h localhost -p 6379 ping
+        # Test MySQL connection
+        mysql -h localhost -P 3306 -u test_user -ptest_password -e "SELECT 1"
+
+    - name: Run code linting
+      run: |
+        pip install flake8 black isort
+        # Check code formatting
+        black --check --diff .
+        # Check imports sorting
+        isort --check-only --diff .
+        # Run flake8 linting
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Run unit tests - Auth Service
+      run: |
+        cd user_auth
+        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+      continue-on-error: false
+
+    - name: Run unit tests - Text Extraction Service
+      run: |
+        cd text_extraction
+        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+      continue-on-error: false
+
+    - name: Run unit tests - Text Summarization Service
+      run: |
+        cd text_summarization
+        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+      continue-on-error: false
+
+    - name: Run integration tests
+      run: |
+        python -m pytest tests/integration/ -v
+      continue-on-error: false
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./user_auth/coverage.xml,./text_extraction/coverage.xml,./text_summarization/coverage.xml
+        fail_ci_if_error: false
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run security scan with bandit
+      run: |
+        pip install bandit[toml]
+        bandit -r . -f json -o bandit-report.json || true
+        bandit -r . --severity-level medium
+
+    - name: Run dependency vulnerability scan
+      run: |
+        pip install safety
+        safety check --json --output safety-report.json || true
+        safety check
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+
+  docker-build-test:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    
+    strategy:
+      matrix:
+        service: [user_auth, text_extraction, text_summarization]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image - ${{ matrix.service }}
+      run: |
+        docker build -f ${{ matrix.service }}/Dockerfile -t ${{ matrix.service }}:test .
+
+    - name: Test Docker image - ${{ matrix.service }}
+      run: |
+        # Basic smoke test - ensure container starts and health check passes
+        docker run --rm -d --name test-${{ matrix.service }} \
+          -e JWT_SECRET_KEY=test-key \
+          -e OPENAI_API_KEY=test-key \
+          ${{ matrix.service }}:test
+        
+        sleep 10
+        
+        # Check if container is still running
+        docker ps | grep test-${{ matrix.service }}
+        
+        # Cleanup
+        docker stop test-${{ matrix.service }} || true
+
+  terraform-validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ~1.0
+
+    - name: Terraform Format Check
+      run: |
+        cd terraform
+        terraform fmt -check -recursive
+
+    - name: Terraform Init
+      run: |
+        cd terraform
+        terraform init -backend=false
+
+    - name: Terraform Validate
+      run: |
+        cd terraform
+        terraform validate
+
+    - name: Terraform Plan (Dry Run)
+      run: |
+        cd terraform
+        terraform plan -var="aws_region=ap-south-1" \
+                      -var="environment=development" \
+                      -var="openai_api_key=sk-test-key-for-validation" \
+                      -var="jwt_secret_key=test-jwt-secret-for-validation" \
+                      -out=tfplan
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      continue-on-error: true

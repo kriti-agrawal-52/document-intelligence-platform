@@ -1,0 +1,88 @@
+# Document Intelligence Microservices Configuration
+# This file contains all application settings and service configurations
+
+app_settings:
+  app_name: "Document Intelligence Platform"
+  version: "1.0.0"
+  environment: "production"
+  debug: false
+
+# JWT Configuration
+jwt:
+  algorithm: "HS256"
+  access_token_expire_minutes: 120  # 2 hours
+
+# OpenAI Configuration
+openai:
+  model: "gpt-4o-mini"
+  max_tokens: 4000
+  temperature: 0.1
+  prompt_for_text_extraction: |
+    Please extract all visible text from this image. 
+    Maintain the original formatting and structure as much as possible.
+    If there are tables, preserve the tabular format.
+    If there are multiple sections, clearly separate them.
+    Return only the extracted text without any additional commentary.
+  prompt_for_summarization: |
+    Please provide a concise and informative summary of the following extracted text.
+    Focus on the key points, important data, and main topics.
+    Keep the summary clear and well-structured.
+    Maximum length: 150 words.
+
+# Service Configuration
+services:
+  auth_service:
+    host: "0.0.0.0"
+    port: 8000
+    base_path: "/auth"
+    
+  text_extraction_service:
+    host: "0.0.0.0"
+    port: 8001
+    base_path: "/extract"
+    
+  text_summarization_service:
+    host: "0.0.0.0"
+    port: 8002
+    base_path: "/summarize"
+
+# Database Configuration
+databases:
+  mysql:
+    host: "localhost"
+    port: 3306
+    user_db_name: "auth_db"
+    
+  mongodb:
+    host: "localhost"
+    port: 27017
+    extracted_text_db_name: "doc_intel_db"
+    extracted_text_collection: "extracted_texts"
+    
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    cache_ttl_seconds: 86400  # 24 hours for user recent extractions
+
+# AWS Configuration
+aws:
+  region: "ap-south-1"
+  s3:
+    user_images_bucket_name: ""  # Will be set from environment variable
+    max_file_size_mb: 10
+    allowed_extensions: [".jpg", ".jpeg", ".png", ".pdf"]
+  
+  sqs:
+    summarization_queue_name: "summarization-jobs-queue"
+    visibility_timeout_seconds: 300
+    max_receive_count: 3
+
+# Cache Configuration
+cache:
+  redis_key_patterns:
+    user_recent_extractions: "user:{user_id}:recent_extractions"
+    document_cache: "document:{document_id}:data"
+  ttl:
+    user_recent_extractions: 86400  # 24 hours
+    document_cache: 3600            # 1 hour

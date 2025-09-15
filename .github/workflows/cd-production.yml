@@ -1,0 +1,282 @@
+name: CD - Production Deployment
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+  CLUSTER_NAME: doc-intel-cluster
+
+jobs:
+  terraform-infrastructure:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    outputs:
+      ecr_auth_url: ${{ steps.terraform.outputs.auth_service_ecr_url }}
+      ecr_extraction_url: ${{ steps.terraform.outputs.text_extraction_service_ecr_url }}
+      ecr_summarization_url: ${{ steps.terraform.outputs.text_summarization_service_ecr_url }}
+      cluster_name: ${{ steps.terraform.outputs.eks_cluster_name }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ~1.0
+        terraform_wrapper: false
+
+    - name: Terraform Init
+      run: |
+        cd terraform
+        terraform init
+
+    - name: Terraform Plan
+      run: |
+        cd terraform
+        terraform plan -var="aws_region=${{ env.AWS_REGION }}" \
+                      -var="environment=${{ github.event.inputs.environment || 'production' }}" \
+                      -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
+                      -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" \
+                      -out=tfplan
+
+    - name: Terraform Apply
+      id: terraform
+      run: |
+        cd terraform
+        terraform apply -auto-approve tfplan
+        
+        # Export outputs for next jobs
+        echo "auth_service_ecr_url=$(terraform output -raw auth_service_ecr_url)" >> $GITHUB_OUTPUT
+        echo "text_extraction_service_ecr_url=$(terraform output -raw text_extraction_service_ecr_url)" >> $GITHUB_OUTPUT
+        echo "text_summarization_service_ecr_url=$(terraform output -raw text_summarization_service_ecr_url)" >> $GITHUB_OUTPUT
+        echo "eks_cluster_name=$(terraform output -raw eks_cluster_name)" >> $GITHUB_OUTPUT
+        echo "rds_endpoint=$(terraform output -raw rds_endpoint)" >> $GITHUB_OUTPUT
+        echo "docdb_endpoint=$(terraform output -raw docdb_endpoint)" >> $GITHUB_OUTPUT
+        echo "redis_endpoint=$(terraform output -raw redis_endpoint)" >> $GITHUB_OUTPUT
+        echo "sqs_queue_url=$(terraform output -raw sqs_summarization_queue_url)" >> $GITHUB_OUTPUT
+        echo "s3_bucket_name=$(terraform output -raw user_images_bucket_name)" >> $GITHUB_OUTPUT
+
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    needs: terraform-infrastructure
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    strategy:
+      matrix:
+        service: 
+          - name: user_auth
+            ecr_url: ${{ needs.terraform-infrastructure.outputs.ecr_auth_url }}
+          - name: text_extraction
+            ecr_url: ${{ needs.terraform-infrastructure.outputs.ecr_extraction_url }}
+          - name: text_summarization
+            ecr_url: ${{ needs.terraform-infrastructure.outputs.ecr_summarization_url }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build, tag, and push image - ${{ matrix.service.name }}
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build the Docker image
+        docker build -f ${{ matrix.service.name }}/Dockerfile -t ${{ matrix.service.ecr_url }}:$IMAGE_TAG .
+        docker tag ${{ matrix.service.ecr_url }}:$IMAGE_TAG ${{ matrix.service.ecr_url }}:latest
+        
+        # Push the Docker image to ECR
+        docker push ${{ matrix.service.ecr_url }}:$IMAGE_TAG
+        docker push ${{ matrix.service.ecr_url }}:latest
+
+  deploy-to-kubernetes:
+    runs-on: ubuntu-latest
+    needs: [terraform-infrastructure, build-and-push-images]
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ needs.terraform-infrastructure.outputs.cluster_name }}
+
+    - name: Install External Secrets Operator
+      run: |
+        helm repo add external-secrets https://charts.external-secrets.io
+        helm repo update
+        
+        # Install External Secrets Operator if not already installed
+        helm upgrade --install external-secrets external-secrets/external-secrets \
+          -n external-secrets-system \
+          --create-namespace \
+          --wait
+
+    - name: Process Kubernetes manifests
+      run: |
+        # Create processed manifests directory
+        mkdir -p kubernetes_processed
+        cp -r kubernetes/* kubernetes_processed/
+        
+        # Replace placeholders with actual values from Terraform
+        AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
+        IMAGE_TAG=${{ github.sha }}
+        
+        # Replace ECR image URLs with versioned tags
+        sed -i "s|<aws_account_id>|${AWS_ACCOUNT_ID}|g" kubernetes_processed/*.yaml
+        sed -i "s|:latest|:${IMAGE_TAG}|g" kubernetes_processed/*.yaml
+        
+        # Replace infrastructure endpoints (these would come from Terraform outputs)
+        sed -i "s|<replace-with-sqs-queue-url-from-terraform-output>|${{ needs.terraform-infrastructure.outputs.sqs_queue_url }}|g" kubernetes_processed/*.yaml
+        sed -i "s|<replace-with-s3-bucket-name-from-terraform-output>|${{ needs.terraform-infrastructure.outputs.s3_bucket_name }}|g" kubernetes_processed/*.yaml
+        
+        # Update database service endpoints
+        sed -i "s|externalName: # <--- REPLACE with your RDS endpoint|externalName: ${{ needs.terraform-infrastructure.outputs.rds_endpoint }}|g" kubernetes_processed/02-db-services.yaml
+        sed -i "s|externalName: # <--- REPLACE with your DocumentDB endpoint|externalName: ${{ needs.terraform-infrastructure.outputs.docdb_endpoint }}|g" kubernetes_processed/02-db-services.yaml
+        sed -i "s|externalName: # <--- REPLACE with your Redis endpoint|externalName: ${{ needs.terraform-infrastructure.outputs.redis_endpoint }}|g" kubernetes_processed/02-db-services.yaml
+
+    - name: Deploy to Kubernetes
+      run: |
+        # Apply manifests in dependency order
+        kubectl apply -f kubernetes_processed/00-namespace.yaml
+        kubectl apply -f kubernetes_processed/01-secrets.yaml
+        kubectl apply -f kubernetes_processed/02-db-services.yaml
+        
+        # Wait for External Secrets to sync
+        echo "Waiting for secrets to sync..."
+        sleep 30
+        
+        # Deploy applications
+        kubectl apply -f kubernetes_processed/03-auth-deployment.yaml
+        kubectl apply -f kubernetes_processed/04-text-extraction-deployment.yaml
+        kubectl apply -f kubernetes_processed/08-text-summarization-deployment.yaml
+        
+        # Configure auto-scaling and load balancing
+        kubectl apply -f kubernetes_processed/06-auth-hpa.yaml
+        kubectl apply -f kubernetes_processed/07-text-extraction-hpa.yaml
+        kubectl apply -f kubernetes_processed/05-ingress.yaml
+
+    - name: Wait for deployment to be ready
+      run: |
+        # Wait for deployments to be ready
+        kubectl wait --for=condition=available --timeout=300s deployment/auth-deployment -n doc-intel-app
+        kubectl wait --for=condition=available --timeout=300s deployment/text-extraction-deployment -n doc-intel-app
+        kubectl wait --for=condition=available --timeout=300s deployment/text-summarisation-deployment -n doc-intel-app
+
+    - name: Run deployment verification tests
+      run: |
+        # Get ALB URL
+        ALB_URL=$(kubectl get ingress doc-intel-ingress -n doc-intel-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        
+        if [ -z "$ALB_URL" ]; then
+          echo "ALB URL not available yet, waiting..."
+          sleep 60
+          ALB_URL=$(kubectl get ingress doc-intel-ingress -n doc-intel-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        fi
+        
+        echo "ALB URL: $ALB_URL"
+        
+        # Test health endpoints
+        curl -f http://$ALB_URL/auth/health || exit 1
+        curl -f http://$ALB_URL/extract/health || exit 1
+        curl -f http://$ALB_URL/health || exit 1
+        
+        echo "All health checks passed!"
+
+    - name: Create GitHub deployment
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const deployment = await github.rest.repos.createDeployment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: context.sha,
+            environment: '${{ github.event.inputs.environment || 'production' }}',
+            description: 'Deployed via GitHub Actions'
+          });
+          
+          await github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: deployment.data.id,
+            state: 'success',
+            description: 'Deployment completed successfully'
+          });
+
+  post-deployment-tests:
+    runs-on: ubuntu-latest
+    needs: deploy-to-kubernetes
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run end-to-end tests
+      run: |
+        pip install pytest requests
+        # Run E2E tests against the deployed application
+        python -m pytest tests/e2e/ -v --tb=short
+      env:
+        API_BASE_URL: ${{ needs.deploy-to-kubernetes.outputs.alb_url }}
+      continue-on-error: true
+
+    - name: Notify deployment status
+      uses: actions/github-script@v7
+      if: always()
+      with:
+        script: |
+          const status = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+          const message = status === 'success' 
+            ? '🚀 Production deployment completed successfully!' 
+            : '❌ Production deployment failed. Please check the logs.';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          });

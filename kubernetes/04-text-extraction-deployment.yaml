@@ -1,0 +1,88 @@
+# /kubernetes/04-text-extraction-deployment.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: text-extraction-deployment
+  namespace: doc-intel-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: text-extraction-service
+  template:
+    metadata:
+      labels:
+        app: text-extraction-service
+    spec:
+      containers:
+      - name: text-extraction-service
+        image: <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/text-extraction-service:latest
+        ports:
+        - containerPort: 8001
+        env:
+        # --- AWS Configuration ---
+        - name: AWS_REGION
+          value: "ap-south-1"
+        - name: SQS_QUEUE_URL
+          value: "<replace-with-sqs-queue-url-from-terraform-output>"
+        - name: S3_USER_IMAGES_BUCKET
+          value: "<replace-with-s3-bucket-name-from-terraform-output>"
+        # --- Database and Cache Configuration ---
+        - name: MONGODB_HOST
+          value: "docdb-service.doc-intel-app.svc.cluster.local"
+        - name: MONGODB_PORT
+          value: "27017"
+        - name: REDIS_HOST
+          value: "redis-service.doc-intel-app.svc.cluster.local"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_DB
+          value: "0"
+        # --- Secrets ---
+        - name: MONGODB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: MONGODB_USER
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: MONGODB_PASSWORD
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-keys
+              key: JWT_SECRET_KEY
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-keys
+              key: OPENAI_API_KEY
+        readinessProbe:
+          httpGet:
+            path: /extract/health
+            port: 8001
+          initialDelaySeconds: 20 # Increased delay for more connections
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /extract/health
+            port: 8001
+          initialDelaySeconds: 20 # Increased delay for more connections
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: text-extraction-service
+  namespace: doc-intel-app
+spec:
+  selector:
+    app: text-extraction-service
+  ports:
+  - protocol: TCP
+    port: 8001
+    targetPort: 8001
+  type: ClusterIP

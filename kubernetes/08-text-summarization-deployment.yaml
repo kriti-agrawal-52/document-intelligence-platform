@@ -1,0 +1,55 @@
+# /kubernetes/08-text-summarisation-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: text-summarisation-deployment
+  namespace: doc-intel-app
+spec:
+  replicas: 2 # Run two workers for high availability
+  selector:
+    matchLabels:
+      app: text-summarisation-service
+  template:
+    metadata:
+      labels:
+        app: text-summarisation-service
+    spec:
+      containers:
+      - name: text-summarisation-service
+        image: <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/text-summarisation-service:latest
+        ports:
+        - containerPort: 8002 # For health check
+        env:
+        - name: AWS_REGION
+          value: "ap-south-1"
+        - name: SQS_QUEUE_URL
+          value: "<replace-with-sqs-queue-url-from-terraform-output>"
+        - name: MONGO_DATABASE_NAME
+          value: "doc-intel-db"
+        - name: MONGO_COLLECTION_NAME
+          value: "extracted_texts"
+        - name: MONGO_CONNECTION_STRING
+          # This assumes your DocDB endpoint and creds are what the app needs
+          value: "mongodb://$(MONGODB_USER):$(MONGODB_PASSWORD)@docdb-service.doc-intel-app.svc.cluster.local:27017/?tls=true&tlsCAFile=/app/global-bundle.pem&retryWrites=false"
+        - name: MONGODB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: MONGODB_USER
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: MONGODB_PASSWORD
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-keys
+              key: OPENAI_API_KEY
+        # Health checks for the worker
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 15

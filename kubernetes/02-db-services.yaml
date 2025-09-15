@@ -1,0 +1,29 @@
+# /kubernetes/02-db-services.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: doc-intel-app
+spec:
+  type: ExternalName
+  externalName: # <--- REPLACE with your RDS endpoint
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docdb-service
+  namespace: doc-intel-app
+spec:
+  type: ExternalName
+  externalName: # <--- REPLACE with your DocumentDB endpoint
+---
+# --- NEW: Redis Service ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: doc-intel-app
+spec:
+  type: ExternalName
+  externalName: # <--- REPLACE with your Redis endpoint from Terraform output
