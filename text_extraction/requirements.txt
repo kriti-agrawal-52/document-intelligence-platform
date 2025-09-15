@@ -11,3 +11,6 @@ PyYAML==6.0.1
 passlib
 redis==5.0.4
 boto3==1.34.106 # <-- ADDED for SQS
+pdf2image==1.17.0  # PDF to image conversion
+Pillow>=10.0.0  # Image processing
+PyPDF2==3.0.1  # PDF metadata extraction

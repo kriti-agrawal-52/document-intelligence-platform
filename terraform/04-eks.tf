@@ -47,7 +47,7 @@ module "eks" {
       # `name` for the node group.
       name = "main-node-group"
       # `instance_types` specifies the type of EC2 instances to use for the worker nodes.
-      # "t3.medium" is a good general-purpose choice for this application.
+      # "t3.medium" is cost-effective for practice/learning environments.
       instance_types = ["t3.medium"]
       # `min_size`, `max_size`, and `desired_size` configure the autoscaling for the node group.
       # This allows the number of worker nodes to scale up or down based on the cluster's needs.

@@ -10,7 +10,7 @@ from io import BytesIO
 
 import boto3
 import openai
-from bson import ObjectId
+from bson import ObjectId 
 from fastapi import (Depends, FastAPI, File, Form, HTTPException, UploadFile,
                      status)
 from motor.motor_asyncio import AsyncIOMotorCollection
@@ -24,6 +24,7 @@ from text_extraction_service.redis_cache import (cache_extraction,
                                                  close_redis_connection,
                                                  connect_to_redis,
                                                  get_cached_extraction)
+from text_extraction_service.pdf_processor import create_pdf_processor
 
 from shared.auth_utils import get_current_user_id
 from shared.config import get_config, get_env_vars
@@ -34,8 +35,9 @@ from shared.jwt_blacklist import (close_jwt_blacklist_redis,
 config_data = get_config()
 env_vars = get_env_vars()
 openai_client = None
-sqs_client = None
+sqs_client = None 
 s3_client = None
+pdf_processor = None
 # Environment variables
 SQS_QUEUE_URL = env_vars.SQS_QUEUE_URL
 AWS_REGION = env_vars.AWS_REGION
@@ -53,7 +55,7 @@ app = FastAPI(
 # --- Lifespan Manager for Connections ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global openai_client, sqs_client, s3_client
+    global openai_client, sqs_client, s3_client, pdf_processor
 
     # Initialize OpenAI client
     if not env_vars.openai_api_key:
@@ -71,11 +73,16 @@ async def lifespan(app: FastAPI):
         s3_client = boto3.client("s3", region_name=AWS_REGION)
         print(f"S3 client initialized for bucket: {S3_BUCKET}")
 
+    # Initialize PDF processor
+    if openai_client:
+        pdf_processor = create_pdf_processor(openai_client)
+        print("PDF processor initialized.")
+
     # Use asyncio.gather to initialize database connections concurrently
     await asyncio.gather(
         connect_to_mongo(), connect_to_redis(), init_jwt_blacklist_redis()
     )
-
+    
     print("Startup complete.")
     yield  # The application is now running
 
@@ -85,7 +92,7 @@ async def lifespan(app: FastAPI):
         # The openai client uses httpx which is best closed explicitly
         await openai_client.close()
         print("OpenAI client closed.")
-
+    
     await asyncio.gather(
         close_mongo_connection(), close_redis_connection(), close_jwt_blacklist_redis()
     )
@@ -187,11 +194,15 @@ class JobAcceptedResponse(BaseModel):
 class DocumentMetadata(BaseModel):
     document_id: str
     image_name: str
+    file_type: str = "image"  # "image" or "pdf"
     status: str
     created_at: str
     updated_at: str | None = None
     s3_url: str | None = None
     has_summary: bool
+    # PDF-specific fields
+    num_pages: int | None = None
+    file_size_mb: float | None = None
 
 
 # --- API Endpoints ---
@@ -241,6 +252,7 @@ async def extract_text_from_image(
         db_document = {
             "image_name": image_name,
             "user_id": user_id,
+            "file_type": "image",
             "extracted_text": "",
             "summary": None,
             "status": "uploading",
@@ -316,13 +328,13 @@ async def extract_text_from_image(
             {"_id": insert_result.inserted_id},
             {
                 "$set": {
-                    "extracted_text": extracted_text_result,
-                    "status": "processing_summary",
+            "extracted_text": extracted_text_result,
+            "status": "processing_summary",
                     "updated_at": datetime.now(timezone.utc),
-                }
+        }
             },
         )
-
+        
         # Step 7: Send message to SQS for summarization
         if sqs_client and SQS_QUEUE_URL:
             message_body = {
@@ -391,6 +403,212 @@ async def extract_text_from_image(
         )
 
 
+@app.post(
+    config_data.services.text_extraction_service.base_path + "/pdf_text",
+    summary="Extract text from an uploaded PDF and start summarization job.",
+    response_model=JobAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Extraction"],
+)
+async def extract_text_from_pdf(
+    user_id: int = Depends(get_current_user_id),
+    pdf_file: UploadFile = File(...),
+    document_name: str = Form(...),
+    collection: AsyncIOMotorCollection = Depends(get_extracted_texts_collection),
+):
+    """
+    Extract text from an uploaded PDF document.
+    
+    This endpoint:
+    1. Validates the PDF file
+    2. Stores the raw PDF in S3
+    3. Converts PDF pages to images
+    4. Extracts text from each page using OpenAI Vision API
+    5. Concatenates text from all pages
+    6. Stores the result in DocumentDB
+    7. Queues the text for summarization via SQS
+    8. Caches the extraction for quick user access
+    """
+    # Validate file type
+    if not pdf_file.content_type == "application/pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Only PDF files are allowed.",
+        )
+    
+    # Check if document name already exists for this user
+    existing_doc = await collection.find_one(
+        {"user_id": user_id, "image_name": document_name}
+    )
+    if existing_doc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Document with name '{document_name}' already exists for this user.",
+        )
+
+    try:
+        # Read PDF content
+        pdf_content = await pdf_file.read()
+        
+        # Validate PDF
+        if not pdf_processor.validate_pdf(pdf_content):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or corrupted PDF file.",
+            )
+        
+        # Get PDF size information
+        pdf_info = pdf_processor.get_pdf_size_info(pdf_content)
+        
+        # Check file size limits (conservative for practice environment)
+        max_size_mb = 10  # Reduced for cost-effective processing
+        if pdf_info.get("size_mb", 0) > max_size_mb:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"PDF file too large. Maximum size is {max_size_mb}MB.",
+            )
+        
+        # Check page limits (conservative for practice environment)
+        max_pages = 20  # Reduced to prevent resource exhaustion
+        if pdf_info.get("num_pages", 0) > max_pages:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"PDF has too many pages. Maximum is {max_pages} pages.",
+            )
+
+        print(f"Processing PDF: {document_name}, Size: {pdf_info.get('size_mb')}MB, Pages: {pdf_info.get('num_pages')}")
+
+        # Step 1: Create initial document in DocumentDB to get document_id
+        document_data = {
+            "user_id": user_id,
+            "image_name": document_name,
+            "file_type": "pdf",
+            "file_size_mb": pdf_info.get("size_mb"),
+            "num_pages": pdf_info.get("num_pages"),
+            "status": "processing_extraction",
+            "created_at": datetime.now(timezone.utc),
+        }
+        
+        result = await collection.insert_one(document_data)
+        document_id = str(result.inserted_id)
+        print(f"Created document record with ID: {document_id}")
+
+        # Step 2: Upload raw PDF to S3
+        s3_key = f"{user_id}_{document_id}_{document_name}.pdf"
+        s3_url = await upload_pdf_to_s3(pdf_content, s3_key)
+        print(f"Uploaded PDF to S3: {s3_url}")
+
+        # Step 3: Update document with S3 URL
+        await collection.update_one(
+            {"_id": ObjectId(document_id)},
+            {
+                "$set": {
+                    "s3_url": s3_url,
+                    "s3_key": s3_key,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        # Step 4: Process PDF (convert to images and extract text)
+        extracted_text, pdf_metadata, actual_pages = await pdf_processor.process_pdf(
+            pdf_content, document_name
+        )
+        
+        print(f"Extracted text from PDF: {len(extracted_text)} characters from {actual_pages} pages")
+
+        # Step 5: Update document with extracted text and processing status
+        await collection.update_one(
+            {"_id": ObjectId(document_id)},
+            {
+                "$set": {
+                    "extracted_text": extracted_text,
+                    "pdf_metadata": pdf_metadata,
+                    "actual_pages": actual_pages,
+                    "status": "processing_summary",
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        # Step 6: Send message to SQS for summarization
+        if sqs_client and SQS_QUEUE_URL:
+            sqs_message = {
+                "document_id": document_id,
+                "user_id": user_id,
+                "text_to_summarize": extracted_text,
+            }
+            sqs_client.send_message(
+                QueueUrl=SQS_QUEUE_URL, MessageBody=json.dumps(sqs_message)
+            )
+            print(f"Sent SQS message for document {document_id}")
+
+        # Step 7: Cache user's recent extractions
+        await cache_user_recent_extractions(user_id, document_id, document_name, s3_url)
+
+        return JobAcceptedResponse(
+            message="Text extracted from PDF successfully. Summarization is in progress.",
+            document_id=document_id,
+            image_name=document_name,
+            extracted_text=extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text,  # Truncate for response
+            s3_url=s3_url,
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
+        raise
+    except openai.APIStatusError as e:
+        # Update document status to failed
+        if "document_id" in locals():
+            await collection.update_one(
+                {"_id": ObjectId(document_id)},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "error": f"OpenAI API error: {str(e)}",
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+        raise HTTPException(
+            status_code=503, detail=f"OpenAI API error: {str(e)}"
+        )
+    except Exception as e:
+        # Update document status to failed
+        if "document_id" in locals():
+            await collection.update_one(
+                {"_id": ObjectId(document_id)},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "error": str(e),
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+        raise HTTPException(
+            status_code=500, detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+async def upload_pdf_to_s3(pdf_content: bytes, s3_key: str) -> str:
+    """Upload PDF content to S3 and return the URL."""
+    try:
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_key,
+            Body=pdf_content,
+            ContentType="application/pdf",
+        )
+        s3_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+        return s3_url
+    except Exception as e:
+        print(f"Failed to upload PDF to S3: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to upload PDF to S3: {str(e)}"
+        )
+
+
 @app.get(
     config_data.services.text_extraction_service.base_path + "/documents",
     response_model=list[DocumentMetadata],
@@ -416,11 +634,14 @@ async def get_user_documents(
         doc_metadata = DocumentMetadata(
             document_id=str(doc["_id"]),
             image_name=doc["image_name"],
+            file_type=doc.get("file_type", "image"),
             status=doc["status"],
             created_at=doc["created_at"].isoformat(),
             updated_at=doc.get("updated_at", doc["created_at"]).isoformat(),
             s3_url=doc.get("s3_url"),
             has_summary=bool(doc.get("summary")),
+            num_pages=doc.get("num_pages"),
+            file_size_mb=doc.get("file_size_mb"),
         )
         documents.append(doc_metadata)
 

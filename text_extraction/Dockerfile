@@ -1,10 +1,11 @@
 # Multi-stage build for text_extraction service
 FROM python:3.11-slim-bullseye as builder
 
-# Install build dependencies
+# Install build dependencies and PDF processing tools
 RUN apt-get update && apt-get install -y \
     build-essential \
     gcc \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
@@ -18,6 +19,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Production stage
 FROM python:3.11-slim-bullseye
+
+# Install runtime dependencies for PDF processing
+RUN apt-get update && apt-get install -y \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
