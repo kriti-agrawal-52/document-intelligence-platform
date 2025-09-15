@@ -28,7 +28,9 @@ jobs:
       ecr_auth_url: ${{ steps.terraform.outputs.auth_service_ecr_url }}
       ecr_extraction_url: ${{ steps.terraform.outputs.text_extraction_service_ecr_url }}
       ecr_summarization_url: ${{ steps.terraform.outputs.text_summarization_service_ecr_url }}
+      ecr_frontend_url: ${{ steps.terraform.outputs.frontend_ecr_repository_url }}
       cluster_name: ${{ steps.terraform.outputs.eks_cluster_name }}
+      app_runner_service_arn: ${{ steps.terraform.outputs.frontend_app_runner_arn }}
       
     steps:
     - name: Checkout code
@@ -71,6 +73,8 @@ jobs:
         echo "auth_service_ecr_url=$(terraform output -raw auth_service_ecr_url)" >> $GITHUB_OUTPUT
         echo "text_extraction_service_ecr_url=$(terraform output -raw text_extraction_service_ecr_url)" >> $GITHUB_OUTPUT
         echo "text_summarization_service_ecr_url=$(terraform output -raw text_summarization_service_ecr_url)" >> $GITHUB_OUTPUT
+        echo "frontend_ecr_repository_url=$(terraform output -raw frontend_ecr_repository_url)" >> $GITHUB_OUTPUT
+        echo "frontend_app_runner_arn=$(terraform output -raw frontend_app_runner_arn)" >> $GITHUB_OUTPUT
         echo "eks_cluster_name=$(terraform output -raw eks_cluster_name)" >> $GITHUB_OUTPUT
         echo "rds_endpoint=$(terraform output -raw rds_endpoint)" >> $GITHUB_OUTPUT
         echo "docdb_endpoint=$(terraform output -raw docdb_endpoint)" >> $GITHUB_OUTPUT
@@ -128,6 +132,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [terraform-infrastructure, build-and-push-images]
     environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    outputs:
+      alb_url: ${{ steps.get-alb-url.outputs.alb_url }}
     
     steps:
     - name: Checkout code
@@ -206,7 +213,8 @@ jobs:
         kubectl wait --for=condition=available --timeout=300s deployment/text-extraction-deployment -n doc-intel-app
         kubectl wait --for=condition=available --timeout=300s deployment/text-summarisation-deployment -n doc-intel-app
 
-    - name: Run deployment verification tests
+    - name: Get ALB URL
+      id: get-alb-url
       run: |
         # Get ALB URL
         ALB_URL=$(kubectl get ingress doc-intel-ingress -n doc-intel-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
@@ -218,6 +226,11 @@ jobs:
         fi
         
         echo "ALB URL: $ALB_URL"
+        echo "alb_url=$ALB_URL" >> $GITHUB_OUTPUT
+
+    - name: Run deployment verification tests
+      run: |
+        ALB_URL="${{ steps.get-alb-url.outputs.alb_url }}"
         
         # Test health endpoints
         curl -f http://$ALB_URL/auth/health || exit 1
@@ -246,9 +259,163 @@ jobs:
             description: 'Deployment completed successfully'
           });
 
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: [terraform-infrastructure, deploy-to-kubernetes]
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: '8'
+        run_install: false
+
+    - name: Get pnpm store directory
+      shell: bash
+      run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+    - name: Setup pnpm cache
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+
+    - name: Install Dependencies
+      working-directory: ./frontend
+      run: pnpm install --frozen-lockfile
+
+    - name: Build Application
+      working-directory: ./frontend
+      run: pnpm build
+      env:
+        # Get ALB URL for backend services
+        NEXT_PUBLIC_AUTH_SERVICE_URL: http://${{ needs.deploy-to-kubernetes.outputs.alb_url }}
+        NEXT_PUBLIC_EXTRACTION_SERVICE_URL: http://${{ needs.deploy-to-kubernetes.outputs.alb_url }}
+        NEXT_PUBLIC_SUMMARIZATION_SERVICE_URL: http://${{ needs.deploy-to-kubernetes.outputs.alb_url }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and Push Frontend Docker Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: |
+          ${{ needs.terraform-infrastructure.outputs.ecr_frontend_url }}:${{ github.sha }}
+          ${{ needs.terraform-infrastructure.outputs.ecr_frontend_url }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64
+        build-args: |
+          NODE_ENV=production
+          NEXT_TELEMETRY_DISABLED=1
+
+    - name: Wait for App Runner Deployment
+      run: |
+        SERVICE_ARN="${{ needs.terraform-infrastructure.outputs.app_runner_service_arn }}"
+        echo "🚀 Waiting for App Runner deployment to complete..."
+        
+        max_attempts=90
+        attempt=1
+        
+        while [[ $attempt -le $max_attempts ]]; do
+          status=$(aws apprunner describe-service \
+            --service-arn "$SERVICE_ARN" \
+            --query 'Service.Status' \
+            --output text)
+          
+          echo "📊 Deployment status: $status (attempt $attempt/$max_attempts)"
+          
+          case $status in
+            "RUNNING")
+              echo "✅ App Runner service is running successfully!"
+              break
+              ;;
+            "OPERATION_IN_PROGRESS")
+              echo "⏳ Deployment in progress..."
+              ;;
+            "CREATE_FAILED"|"UPDATE_FAILED"|"DELETE_FAILED")
+              echo "❌ App Runner deployment failed with status: $status"
+              exit 1
+              ;;
+          esac
+          
+          if [[ $attempt -eq $max_attempts ]]; then
+            echo "⏰ Deployment monitoring timed out"
+            exit 1
+          fi
+          
+          sleep 10
+          ((attempt++))
+        done
+
+    - name: Get Frontend URL and Health Check
+      id: frontend-info
+      run: |
+        SERVICE_ARN="${{ needs.terraform-infrastructure.outputs.app_runner_service_arn }}"
+        
+        SERVICE_URL=$(aws apprunner describe-service \
+          --service-arn "$SERVICE_ARN" \
+          --query 'Service.ServiceUrl' \
+          --output text)
+        
+        FRONTEND_URL="https://$SERVICE_URL"
+        echo "frontend-url=$FRONTEND_URL" >> $GITHUB_OUTPUT
+        echo "🌐 Frontend URL: $FRONTEND_URL"
+        
+        # Health check
+        HEALTH_URL="$FRONTEND_URL/api/health"
+        echo "🏥 Performing health check: $HEALTH_URL"
+        
+        max_attempts=12
+        attempt=1
+        
+        while [[ $attempt -le $max_attempts ]]; do
+          if curl -f -s "$HEALTH_URL" > /dev/null; then
+            echo "✅ Frontend health check passed!"
+            break
+          else
+            echo "⏳ Health check failed, retrying... (attempt $attempt/$max_attempts)"
+            
+            if [[ $attempt -eq $max_attempts ]]; then
+              echo "❌ Frontend health check failed"
+              exit 1
+            fi
+          fi
+          
+          sleep 10
+          ((attempt++))
+        done
+
   post-deployment-tests:
     runs-on: ubuntu-latest
-    needs: deploy-to-kubernetes
+    needs: [deploy-to-kubernetes, deploy-frontend]
     environment: ${{ github.event.inputs.environment || 'production' }}
     
     steps:
@@ -270,13 +437,30 @@ jobs:
       with:
         script: |
           const status = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+          const backendUrl = '${{ needs.deploy-to-kubernetes.outputs.alb_url }}';
+          const frontendUrl = '${{ needs.deploy-frontend.outputs.frontend-url }}' || 'Not available';
+          
           const message = status === 'success' 
-            ? '🚀 Production deployment completed successfully!' 
+            ? `🚀 Production deployment completed successfully!
+            
+            **Backend Services:** http://${backendUrl}
+            **Frontend Application:** ${frontendUrl}
+            
+            **Health Checks:**
+            - Auth Service: http://${backendUrl}/auth/health
+            - Extraction Service: http://${backendUrl}/extract/health  
+            - Frontend Health: ${frontendUrl}/api/health
+            ` 
             : '❌ Production deployment failed. Please check the logs.';
           
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: message
-          });
+          if (context.issue && context.issue.number) {
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+          } else {
+            console.log('No issue/PR context, skipping comment');
+            console.log(message);
+          }
