@@ -164,7 +164,7 @@ resource "aws_iam_role_policy" "apprunner_backend_access" {
 # BENEFIT: Frontend can make direct calls to backend without going through internet
 resource "aws_apprunner_vpc_connector" "frontend_vpc_connector" {
   vpc_connector_name = "${var.project_name}-frontend-vpc-connector"
-  subnets           = [aws_subnet.private_subnet_1.id, aws_subnet.private_subnet_2.id]
+  subnets           = module.vpc.private_subnets
   security_groups   = [aws_security_group.frontend_sg.id]
 
   tags = {
@@ -178,7 +178,7 @@ resource "aws_apprunner_vpc_connector" "frontend_vpc_connector" {
 # PURPOSE: Control network access for the frontend service
 resource "aws_security_group" "frontend_sg" {
   name_prefix = "${var.project_name}-frontend-apprunner-"
-  vpc_id      = aws_vpc.main_vpc.id
+  vpc_id      = module.vpc.vpc_id
   description = "Security group for Frontend App Runner service"
 
   # OUTBOUND RULES: Allow frontend to connect to backend services
@@ -187,7 +187,7 @@ resource "aws_security_group" "frontend_sg" {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main_vpc.cidr_block]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   egress {
@@ -195,7 +195,7 @@ resource "aws_security_group" "frontend_sg" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main_vpc.cidr_block]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   egress {
@@ -203,7 +203,7 @@ resource "aws_security_group" "frontend_sg" {
     from_port   = 8000
     to_port     = 8002
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main_vpc.cidr_block]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   egress {
