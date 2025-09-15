@@ -62,8 +62,17 @@ jobs:
         echo "✅ Terraform configuration is valid"
 
     - name: Terraform Plan
+      env:
+        TF_LOG: DEBUG
       run: |
         cd terraform
+        
+        # Check if all required variables are set
+        echo "🔍 Checking environment variables..."
+        echo "AWS_REGION: ${{ env.AWS_REGION }}"
+        echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+        echo "OpenAI API Key: $(if [ -n "${{ secrets.OPENAI_API_KEY }}" ]; then echo "✅ Set"; else echo "❌ Missing"; fi)"
+        echo "JWT Secret: $(if [ -n "${{ secrets.JWT_SECRET_KEY }}" ]; then echo "✅ Set"; else echo "❌ Missing"; fi)"
         
         # Run terraform plan and capture exit code
         set +e  # Don't exit on error immediately
@@ -72,7 +81,7 @@ jobs:
                       -var="environment=${{ github.event.inputs.environment || 'production' }}" \
                       -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
                       -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" \
-                      -out=tfplan 2>&1 | tee plan_output.log
+                      -out=tfplan
         PLAN_EXIT_CODE=$?
         set -e  # Re-enable exit on error
         
@@ -84,21 +93,15 @@ jobs:
           echo "✅ Terraform plan completed - Changes detected (this is expected)"
         else
           echo "❌ Terraform plan failed with exit code $PLAN_EXIT_CODE"
-          echo "📋 Plan output:"
-          cat plan_output.log
-          echo "🔍 Checking for common issues..."
+          echo "🔍 Running terraform plan again to show detailed errors..."
           
-          # Check for specific error patterns
-          if grep -q "Error:" plan_output.log; then
-            echo "⚠️  Configuration errors found in plan output"
-            grep "Error:" plan_output.log
-          fi
+          # Run plan again without -out flag to show full error details
+          terraform plan -var="aws_region=${{ env.AWS_REGION }}" \
+                        -var="environment=${{ github.event.inputs.environment || 'production' }}" \
+                        -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
+                        -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" || true
           
-          if grep -q "Warning:" plan_output.log; then
-            echo "⚠️  Warnings found in plan output"
-            grep "Warning:" plan_output.log
-          fi
-          
+          echo "❌ Plan generation failed - cannot proceed to apply"
           exit 1
         fi
         
