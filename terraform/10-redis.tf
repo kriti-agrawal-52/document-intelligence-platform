@@ -3,7 +3,7 @@
 # --- ElastiCache for Redis ---
 
 resource "aws_elasticache_subnet_group" "redis_subnet_group" {
-  name       = "redis-subnet-group"
+  name       = "redis-subnet-group-v2"
   subnet_ids = module.vpc.private_subnets
 
   tags = {

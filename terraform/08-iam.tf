@@ -32,7 +32,7 @@ module "iam_assumable_role_for_alb" {
 # This `aws_iam_policy` resource contains the specific permissions the controller needs.
 # This is the complete policy from AWS documentation for the Load Balancer Controller.
 resource "aws_iam_policy" "aws_load_balancer_controller" {
-  name        = "AWSLoadBalancerControllerIAMPolicy"
+  name        = "AWSLoadBalancerControllerIAMPolicy-v2"
   description = "Policy for the AWS Load Balancer Controller"
 
   policy = jsonencode({
@@ -223,7 +223,7 @@ data "aws_iam_policy_document" "sqs_policy_doc" {
 }
 
 resource "aws_iam_policy" "sqs_policy" {
-  name   = "EKS-SQS-Summarization-Policy"
+  name   = "EKS-SQS-Summarization-Policy-v2"
   policy = data.aws_iam_policy_document.sqs_policy_doc.json
 }
 
@@ -263,7 +263,7 @@ data "aws_iam_policy_document" "text_extraction_s3_policy_doc" {
 }
 
 resource "aws_iam_policy" "text_extraction_s3_policy" {
-  name        = "TextExtractionService-S3-UserImages-Policy"
+  name        = "TextExtractionService-S3-UserImages-Policy-v2"
   description = "Policy for text extraction service to access user images S3 bucket"
   policy      = data.aws_iam_policy_document.text_extraction_s3_policy_doc.json
 }

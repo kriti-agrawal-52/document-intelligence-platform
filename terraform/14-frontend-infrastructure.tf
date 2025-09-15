@@ -595,7 +595,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
 # SECURITY MODEL: Role-based access instead of long-lived access keys
 # BENEFITS: Temporary credentials, automatic rotation, audit trail
 resource "aws_iam_role" "frontend_deployment_role" {
-  name = "${var.project_name}-frontend-deployment-role"
+  name = "${var.project_name}-frontend-deployment-role-v2"
 
   # ASSUME ROLE POLICY: Who can "become" this role and use its permissions
   assume_role_policy = jsonencode({
@@ -627,7 +627,7 @@ resource "aws_iam_role" "frontend_deployment_role" {
   })
 
   tags = {
-    Name        = "${var.project_name}-frontend-deployment-role"
+    Name        = "${var.project_name}-frontend-deployment-role-v2"
     Environment = var.environment
     Purpose     = "Frontend Deployment Automation" # What this role does
   }

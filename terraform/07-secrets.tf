@@ -11,7 +11,7 @@
 # This `aws_secretsmanager_secret` resource creates a new secret container in Secrets Manager.
 resource "aws_secretsmanager_secret" "rds_secret" {
   # `name` is the unique path-like identifier for the secret.
-  name = "doc-intel/rds-credentials"
+  name = "doc-intel/rds-credentials-v2"
   # *** FIX: Set recovery window to 0 to allow immediate deletion. ***
   # This disables the default 7-30 day recovery period.
   recovery_window_in_days = 0
@@ -33,7 +33,7 @@ resource "aws_secretsmanager_secret_version" "rds_creds" {
 # --- DocumentDB Credentials Secret ---
 # We follow the same pattern to create a separate secret for our DocumentDB credentials.
 resource "aws_secretsmanager_secret" "docdb_secret" {
-  name                    = "doc-intel/docdb-credentials"
+  name                    = "doc-intel/docdb-credentials-v2"
   recovery_window_in_days = 0
 }
 
@@ -48,7 +48,7 @@ resource "aws_secretsmanager_secret_version" "docdb_creds" {
 # --- JWT Secret Key ---
 # This secret stores the key used to sign the JSON Web Tokens for authentication.
 resource "aws_secretsmanager_secret" "jwt_key_secret" {
-  name                    = "doc-intel/jwt-key"
+  name                    = "doc-intel/jwt-key-v2"
   recovery_window_in_days = 0
 }
 
@@ -60,7 +60,7 @@ resource "aws_secretsmanager_secret_version" "jwt_key" {
 # --- OpenAI API Key ---
 # This secret stores the API key for the external OpenAI service.
 resource "aws_secretsmanager_secret" "openai_key_secret" {
-  name                    = "doc-intel/openai-key"
+  name                    = "doc-intel/openai-key-v2"
   recovery_window_in_days = 0
 }
 
