@@ -113,17 +113,91 @@ jobs:
         
         echo "✅ Terraform plan file created successfully"
 
+    - name: Pre-Apply AWS Quota Check
+      run: |
+        echo "🔍 Checking AWS Service Quotas before deployment..."
+        
+        # Check EC2 running instances
+        RUNNING_INSTANCES=$(aws ec2 describe-instances --region ${{ env.AWS_REGION }} \
+          --filters "Name=instance-state-name,Values=running,pending" \
+          --query 'length(Reservations[].Instances[])')
+        echo "Current running/pending EC2 instances: $RUNNING_INSTANCES"
+        
+        # Check Spot Fleet Requests
+        SPOT_FLEETS=$(aws ec2 describe-spot-fleet-requests --region ${{ env.AWS_REGION }} \
+          --query 'length(SpotFleetRequestConfigs[?SpotFleetRequestState==`active`])')
+        echo "Active Spot Fleet Requests: $SPOT_FLEETS"
+        
+        # Check existing failed resources that might need cleanup
+        echo "🔍 Checking for existing failed resources..."
+        
+        # Check for failed App Runner services
+        FAILED_APPRUNNER=$(aws apprunner list-services --region ${{ env.AWS_REGION }} \
+          --query 'length(ServiceSummaryList[?contains(ServiceName,`document-intelligence`)])' 2>/dev/null || echo "0")
+        if [ "$FAILED_APPRUNNER" -gt 0 ]; then
+          echo "⚠️  Found $FAILED_APPRUNNER existing App Runner services - cleanup may be needed"
+        fi
+        
+        # Check for existing subnet groups
+        RDS_SUBNETS=$(aws rds describe-db-subnet-groups --region ${{ env.AWS_REGION }} \
+          --query 'length(DBSubnetGroups[?contains(DBSubnetGroupName,`rds-subnet-group`)])' 2>/dev/null || echo "0")
+        CACHE_SUBNETS=$(aws elasticache describe-cache-subnet-groups --region ${{ env.AWS_REGION }} \
+          --query 'length(CacheSubnetGroups[?contains(CacheSubnetGroupName,`redis-subnet-group`)])' 2>/dev/null || echo "0")
+        
+        if [ "$RDS_SUBNETS" -gt 0 ] || [ "$CACHE_SUBNETS" -gt 0 ]; then
+          echo "⚠️  Found existing subnet groups (RDS: $RDS_SUBNETS, Cache: $CACHE_SUBNETS)"
+          echo "💡 Consider running cleanup script: ./aws-cleanup-complete.sh"
+        fi
+
     - name: Terraform Apply
       id: terraform
       run: |
         cd terraform
         echo "🚀 Starting Terraform Apply..."
         
-        # Apply the plan
-        if terraform apply -auto-approve tfplan; then
+        # Apply the plan with detailed error capture
+        set +e  # Don't exit on error immediately
+        terraform apply -auto-approve tfplan 2>&1 | tee terraform_apply.log
+        APPLY_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
+        
+        if [ $APPLY_EXIT_CODE -eq 0 ]; then
           echo "✅ Terraform apply completed successfully"
         else
-          echo "❌ Terraform apply failed"
+          echo "❌ Terraform apply failed with exit code $APPLY_EXIT_CODE"
+          echo ""
+          echo "🔍 Analyzing failure reasons..."
+          
+          # Check for common error patterns
+          if grep -q "DBSubnetGroupAlreadyExists\|CacheSubnetGroupAlreadyExists" terraform_apply.log; then
+            echo "💡 SOLUTION: Subnet group already exists. Run cleanup script:"
+            echo "   ./aws-cleanup-complete.sh"
+          fi
+          
+          if grep -q "CREATE_FAILED.*App Runner" terraform_apply.log; then
+            echo "💡 SOLUTION: App Runner service failed. Check service logs and run cleanup:"
+            echo "   ./aws-cleanup-complete.sh"
+          fi
+          
+          if grep -q "AsgInstanceLaunchFailures\|Fleet Requests.*quota" terraform_apply.log; then
+            echo "💡 SOLUTION: EC2 quota exceeded. Options:"
+            echo "   1. Run cleanup script: ./aws-cleanup-complete.sh"
+            echo "   2. Request quota increase in AWS Service Quotas console"
+            echo "   3. Wait for existing instances to terminate"
+          fi
+          
+          if grep -q "ResourceAlreadyExistsException\|AlreadyExists" terraform_apply.log; then
+            echo "💡 SOLUTION: Resources already exist. Run cleanup script:"
+            echo "   ./aws-cleanup-complete.sh"
+          fi
+          
+          echo ""
+          echo "📋 Troubleshooting Steps:"
+          echo "1. Run the enhanced cleanup script: ./aws-cleanup-complete.sh"
+          echo "2. Wait 15-20 minutes for resources to be fully deleted"
+          echo "3. Check AWS Service Quotas console for limits"
+          echo "4. Re-run this deployment"
+          
           exit 1
         fi
         
@@ -158,6 +232,54 @@ jobs:
         fi
         
         echo "✅ All outputs exported successfully"
+
+    - name: Post-Apply Resource Health Check
+      if: always()
+      run: |
+        echo "🏥 Checking resource health after Terraform apply..."
+        
+        # Check App Runner service status
+        if [ -n "${{ steps.terraform.outputs.frontend_app_runner_arn }}" ]; then
+          echo "Checking App Runner service status..."
+          SERVICE_ARN="${{ steps.terraform.outputs.frontend_app_runner_arn }}"
+          SERVICE_STATUS=$(aws apprunner describe-service --service-arn "$SERVICE_ARN" --region ${{ env.AWS_REGION }} \
+            --query 'Service.Status' --output text 2>/dev/null || echo "NOT_FOUND")
+          echo "App Runner service status: $SERVICE_STATUS"
+          
+          if [ "$SERVICE_STATUS" = "CREATE_FAILED" ]; then
+            echo "❌ App Runner service creation failed"
+            echo "🔍 Getting failure details..."
+            aws apprunner describe-service --service-arn "$SERVICE_ARN" --region ${{ env.AWS_REGION }} \
+              --query 'Service' --output json || true
+            
+            echo "💡 This service will be cleaned up in the next deployment cycle"
+          elif [ "$SERVICE_STATUS" = "RUNNING" ]; then
+            echo "✅ App Runner service is healthy"
+          else
+            echo "⏳ App Runner service is in transitional state: $SERVICE_STATUS"
+          fi
+        fi
+        
+        # Check EKS node group status
+        if [ -n "${{ steps.terraform.outputs.eks_cluster_name }}" ]; then
+          echo "Checking EKS node groups..."
+          CLUSTER_NAME="${{ steps.terraform.outputs.eks_cluster_name }}"
+          NODE_GROUPS=$(aws eks list-nodegroups --cluster-name "$CLUSTER_NAME" --region ${{ env.AWS_REGION }} \
+            --query 'nodegroups' --output text 2>/dev/null || echo "")
+          
+          for NODE_GROUP in $NODE_GROUPS; do
+            if [ "$NODE_GROUP" != "None" ] && [ ! -z "$NODE_GROUP" ]; then
+              NODE_STATUS=$(aws eks describe-nodegroup --cluster-name "$CLUSTER_NAME" --nodegroup-name "$NODE_GROUP" --region ${{ env.AWS_REGION }} \
+                --query 'nodegroup.status' --output text 2>/dev/null || echo "UNKNOWN")
+              echo "Node group $NODE_GROUP status: $NODE_STATUS"
+              
+              if [ "$NODE_STATUS" = "CREATE_FAILED" ]; then
+                echo "❌ Node group creation failed due to quota limits"
+                echo "💡 Run cleanup script and consider requesting quota increase"
+              fi
+            fi
+          done
+        fi
 
   build-and-push-images:
     runs-on: ubuntu-latest

@@ -212,3 +212,5 @@ safety-report.json
 
 # AWS cleanup scripts (temporary utilities)
 cleanup-aws-resources.sh
+aws-cleanup-complete.sh
+check-aws-quotas.sh
