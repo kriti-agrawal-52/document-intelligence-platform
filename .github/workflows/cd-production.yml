@@ -203,10 +203,31 @@ jobs:
         
         echo "📊 Exporting Terraform outputs..."
         
-        # Export outputs for next jobs (with error handling)
-        echo "auth_service_ecr_url=$(terraform output -raw auth_service_ecr_url)" >> $GITHUB_OUTPUT
-        echo "text_extraction_service_ecr_url=$(terraform output -raw text_extraction_service_ecr_url)" >> $GITHUB_OUTPUT
-        echo "text_summarization_service_ecr_url=$(terraform output -raw text_summarization_service_ecr_url)" >> $GITHUB_OUTPUT
+        # Debug: Show all terraform outputs
+        echo "🔍 All Terraform outputs:"
+        terraform output
+        
+        # Export outputs for next jobs (with error handling and validation)
+        AUTH_ECR_URL=$(terraform output -raw auth_service_ecr_url 2>/dev/null || echo "")
+        EXTRACTION_ECR_URL=$(terraform output -raw text_extraction_service_ecr_url 2>/dev/null || echo "")
+        SUMMARIZATION_ECR_URL=$(terraform output -raw text_summarization_service_ecr_url 2>/dev/null || echo "")
+        
+        echo "🔍 ECR URLs:"
+        echo "  Auth: $AUTH_ECR_URL"
+        echo "  Extraction: $EXTRACTION_ECR_URL"
+        echo "  Summarization: $SUMMARIZATION_ECR_URL"
+        
+        # Validate ECR URLs are not empty
+        if [ -z "$AUTH_ECR_URL" ] || [ -z "$EXTRACTION_ECR_URL" ] || [ -z "$SUMMARIZATION_ECR_URL" ]; then
+          echo "❌ ERROR: One or more ECR URLs are empty!"
+          echo "This indicates that ECR repositories were not created successfully."
+          echo "Please check the Terraform apply logs for ECR creation errors."
+          exit 1
+        fi
+        
+        echo "auth_service_ecr_url=$AUTH_ECR_URL" >> $GITHUB_OUTPUT
+        echo "text_extraction_service_ecr_url=$EXTRACTION_ECR_URL" >> $GITHUB_OUTPUT
+        echo "text_summarization_service_ecr_url=$SUMMARIZATION_ECR_URL" >> $GITHUB_OUTPUT
         echo "eks_cluster_name=$(terraform output -raw eks_cluster_name)" >> $GITHUB_OUTPUT
         echo "rds_endpoint=$(terraform output -raw rds_endpoint)" >> $GITHUB_OUTPUT
         echo "docdb_endpoint=$(terraform output -raw docdb_endpoint)" >> $GITHUB_OUTPUT
@@ -319,13 +340,32 @@ jobs:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
+        echo "🔍 Debug information:"
+        echo "  Service name: ${{ matrix.service.name }}"
+        echo "  ECR URL: ${{ matrix.service.ecr_url }}"
+        echo "  ECR Registry: $ECR_REGISTRY"
+        echo "  Image Tag: $IMAGE_TAG"
+        
+        # Validate ECR URL is not empty
+        if [ -z "${{ matrix.service.ecr_url }}" ]; then
+          echo "❌ ERROR: ECR URL is empty for service ${{ matrix.service.name }}"
+          echo "This indicates that the Terraform output was not properly exported."
+          exit 1
+        fi
+        
         # Build the Docker image
+        echo "🏗️ Building Docker image..."
         docker build -f ${{ matrix.service.name }}/Dockerfile -t ${{ matrix.service.ecr_url }}:$IMAGE_TAG .
+        
+        echo "🏷️ Tagging Docker image..."
         docker tag ${{ matrix.service.ecr_url }}:$IMAGE_TAG ${{ matrix.service.ecr_url }}:latest
         
+        echo "📤 Pushing Docker images to ECR..."
         # Push the Docker image to ECR
         docker push ${{ matrix.service.ecr_url }}:$IMAGE_TAG
         docker push ${{ matrix.service.ecr_url }}:latest
+        
+        echo "✅ Successfully built and pushed ${{ matrix.service.name }} image"
 
   deploy-to-kubernetes:
     runs-on: ubuntu-latest
