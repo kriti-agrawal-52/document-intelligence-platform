@@ -38,7 +38,7 @@ resource "aws_security_group" "db_access_sg" {
 # A `db_subnet_group` tells RDS which subnets it is allowed to place the database instance in.
 # We must use our private subnets to keep the database secure.
 resource "aws_db_subnet_group" "rds_subnet_group" {
-  name       = "rds-subnet-group-v2"
+  name       = "rds-subnet-group"
   subnet_ids = module.vpc.private_subnets
   tags       = { Name = " RDS Subnet Group" }
 }
@@ -67,7 +67,7 @@ resource "aws_db_instance" "mysql_db" {
 # --- DocumentDB Cluster for Text Extraction Service ---
 # DocumentDB also requires a subnet group, similar to RDS.
 resource "aws_docdb_subnet_group" "docdb_subnet_group" {
-  name       = "docdb-subnet-group-v2"
+  name       = "docdb-subnet-group"
   subnet_ids = module.vpc.private_subnets
   tags       = { Name = "DocDB Subnet Group" }
 }

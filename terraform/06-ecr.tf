@@ -8,7 +8,7 @@
 
 # --- ECR Repository for the Authentication Service ---
 resource "aws_ecr_repository" "auth_service_ecr" {
-  name                 = "auth-service-v2"
+  name                 = "auth-service"
   image_tag_mutability = "MUTABLE"
   force_delete         = true
 
@@ -19,7 +19,7 @@ resource "aws_ecr_repository" "auth_service_ecr" {
 
 # --- ECR Repository for the Text Extraction Service ---
 resource "aws_ecr_repository" "text_extraction_service_ecr" {
-  name                 = "text-extraction-service-v2"
+  name                 = "text-extraction-service"
   image_tag_mutability = "MUTABLE"
   force_delete         = true
 
@@ -32,7 +32,7 @@ resource "aws_ecr_repository" "text_extraction_service_ecr" {
 # *** FIX: Ensure the resource name uses 'summarization' with a 'z' ***
 resource "aws_ecr_repository" "text_summarization_service_ecr" {
   # The `name` tag is what you see in the AWS Console.
-  name                 = "text-summarization-service-v2"
+  name                 = "text-summarization-service"
   image_tag_mutability = "MUTABLE"
   force_delete         = true
 

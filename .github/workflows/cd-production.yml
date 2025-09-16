@@ -311,11 +311,11 @@ jobs:
       matrix:
         service: 
           - name: user_auth
-            ecr_url: ${{ needs.terraform-infrastructure.outputs.ecr_auth_url }}
+            ecr_url: ${{ needs.terraform-infrastructure.outputs.auth_service_ecr_url }}
           - name: text_extraction
-            ecr_url: ${{ needs.terraform-infrastructure.outputs.ecr_extraction_url }}
+            ecr_url: ${{ needs.terraform-infrastructure.outputs.text_extraction_service_ecr_url }}
           - name: text_summarization
-            ecr_url: ${{ needs.terraform-infrastructure.outputs.ecr_summarization_url }}
+            ecr_url: ${{ needs.terraform-infrastructure.outputs.text_summarization_service_ecr_url }}
     
     steps:
     - name: Checkout code
